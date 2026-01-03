@@ -320,8 +320,28 @@ def train_sub_step_test_step_dataset_base(config):
 # ----------------------- TEST BASE FILES -----------------------
 
 
-def test_er_model(model, test_loader, criterion, device, phase, step_normalization=True, sub_step_normalization=True,
-                  threshold=0.6):
+def test_er_model(
+    model,
+    test_loader,
+    criterion,
+    device,
+    phase,
+    step_normalization=True,
+    sub_step_normalization=True,
+    threshold=0.6,
+):
+    import numpy as np
+    import torch
+    from collections import defaultdict
+    from sklearn.metrics import (
+        precision_score,
+        recall_score,
+        f1_score,
+        roc_auc_score,
+        accuracy_score,
+    )
+    from tqdm import tqdm
+
     total_samples = 0
     all_targets = []
     all_outputs = []
@@ -331,13 +351,30 @@ def test_er_model(model, test_loader, criterion, device, phase, step_normalizati
     test_losses = []
 
     test_step_start_end_list = []
+    step_keys = []  # (recording_id, step_id) aligned with test_step_start_end_list
     counter = 0
 
+    # Try to access the dataset's step->error_labels mapping
+    ds = getattr(test_loader, "iterable", None)  # tqdm wraps; not always present
+    ds = getattr(test_loader, "dataset", None) or getattr(getattr(test_loader, "iterable", None), "dataset", None)
+    recording_step_error_labels = getattr(ds, "_recording_step_error_labels", None)
+
     with torch.no_grad():
-        for data, target in test_loader:
+        for data, target, recording_ids, step_ids in test_loader:
+            # This evaluation code assumes batch_size=1 (otherwise step boundaries are lost by collate_fn's cat()).
+            if isinstance(step_ids, (tuple, list)) and len(step_ids) != 1:
+                raise ValueError(
+                    "test_er_model assumes batch_size=1 for step-level aggregation. "
+                    "Your collate_fn concatenates variable-length steps, so batch_size>1 loses boundaries."
+                )
+
+            recording_id = recording_ids[0] if isinstance(recording_ids, (tuple, list)) else recording_ids
+            step_id = step_ids[0] if isinstance(step_ids, (tuple, list)) else step_ids
+
             data, target = data.to(device), target.to(device)
             output = model(data)
             total_samples += data.shape[0]
+
             loss = criterion(output, target)
             test_losses.append(loss.item())
 
@@ -346,107 +383,110 @@ def test_er_model(model, test_loader, criterion, device, phase, step_normalizati
             all_targets.append(target.detach().cpu().numpy().reshape(-1))
 
             test_step_start_end_list.append((counter, counter + data.shape[0]))
+            step_keys.append((recording_id, step_id))
             counter += data.shape[0]
 
-            # Set the description of the tqdm instance to show the loss
-            test_loader.set_description(f'{phase} Progress: {total_samples}/{num_batches}')
+            test_loader.set_description(f"{phase} Progress: {total_samples}/{num_batches}")
 
-    # Flatten lists
+    # Flatten
     all_outputs = np.concatenate(all_outputs)
     all_targets = np.concatenate(all_targets)
 
-    # Assert that none of the outputs are NaN
     assert not np.isnan(all_outputs).any(), "Outputs contain NaN values"
 
     # ------------------------- Sub-Step Level Metrics -------------------------
     all_sub_step_targets = all_targets.copy()
     all_sub_step_outputs = all_outputs.copy()
 
-    # Calculate metrics at the sub-step level
     pred_sub_step_labels = (all_sub_step_outputs > 0.5).astype(int)
-    sub_step_precision = precision_score(all_sub_step_targets, pred_sub_step_labels)
-    sub_step_recall = recall_score(all_sub_step_targets, pred_sub_step_labels)
-    sub_step_f1 = f1_score(all_sub_step_targets, pred_sub_step_labels)
-    sub_step_accuracy = accuracy_score(all_sub_step_targets, pred_sub_step_labels)
-    sub_step_auc = roc_auc_score(all_sub_step_targets, all_sub_step_outputs)
-    sub_step_pr_auc = binary_auprc(torch.tensor(pred_sub_step_labels), torch.tensor(all_sub_step_targets))
-
     sub_step_metrics = {
-        const.PRECISION: sub_step_precision,
-        const.RECALL: sub_step_recall,
-        const.F1: sub_step_f1,
-        const.ACCURACY: sub_step_accuracy,
-        const.AUC: sub_step_auc,
-        const.PR_AUC: sub_step_pr_auc
+        const.PRECISION: precision_score(all_sub_step_targets, pred_sub_step_labels, zero_division=0),
+        const.RECALL: recall_score(all_sub_step_targets, pred_sub_step_labels, zero_division=0),
+        const.F1: f1_score(all_sub_step_targets, pred_sub_step_labels, zero_division=0),
+        const.ACCURACY: accuracy_score(all_sub_step_targets, pred_sub_step_labels),
+        const.AUC: roc_auc_score(all_sub_step_targets, all_sub_step_outputs)
+        if len(np.unique(all_sub_step_targets)) == 2
+        else None,
+        const.PR_AUC: binary_auprc(torch.tensor(pred_sub_step_labels), torch.tensor(all_sub_step_targets)),
     }
 
     # -------------------------- Step Level Metrics --------------------------
     all_step_targets = []
     all_step_outputs = []
+    all_step_error_sets = []  # set of error_category_idx for that step (possibly multiple)
 
-    # threshold_outputs = all_outputs / max_probability
+    for (start, end), (recording_id, step_id) in zip(test_step_start_end_list, step_keys):
+        step_output = np.array(all_outputs[start:end])
+        step_target = np.array(all_targets[start:end])
 
-    for start, end in test_step_start_end_list:
-        step_output = all_outputs[start:end]
-        step_target = all_targets[start:end]
-
-        # sorted_step_output = np.sort(step_output)
-        # # Top 50% of the predictions
-        # threshold = np.percentile(sorted_step_output, 50)
-        # step_output = step_output[step_output > threshold]
-
-        # pos_output = step_output[step_output > 0.5]
-        # neg_output = step_output[step_output <= 0.5]
-        #
-        # if len(pos_output) > len(neg_output):
-        #     step_output = pos_output
-        # else:
-        #     step_output = neg_output
-        step_output = np.array(step_output)
-        # # Scale the output to [0, 1]
-        if start - end > 1:
-            if sub_step_normalization:
-                prob_range = np.max(step_output) - np.min(step_output)
+        # Normalize within the step (only if more than 1 sub-step)
+        if (end - start) > 1 and sub_step_normalization:
+            prob_range = np.max(step_output) - np.min(step_output)
+            if prob_range > 0:
                 step_output = (step_output - np.min(step_output)) / prob_range
 
-        mean_step_output = np.mean(step_output)
-        step_target = 1 if np.mean(step_target) > 0.95 else 0
+        mean_step_output = float(np.mean(step_output))
+        step_target_bin = 1 if float(np.mean(step_target)) > 0.95 else 0
 
         all_step_outputs.append(mean_step_output)
-        all_step_targets.append(step_target)
+        all_step_targets.append(step_target_bin)
 
-    all_step_outputs = np.array(all_step_outputs)
+        # Error-type labels (only meaningful for error steps; keep empty set for non-error)
+        if step_target_bin == 1 and recording_step_error_labels is not None:
+            err_set = recording_step_error_labels.get(recording_id, {}).get(step_id, set())
+            all_step_error_sets.append(set(err_set))
+        else:
+            all_step_error_sets.append(set())
 
-    # # Scale the output to [0, 1]
+    all_step_outputs = np.array(all_step_outputs, dtype=float)
+    all_step_targets = np.array(all_step_targets, dtype=int)
+
+    # Normalize across steps
     if step_normalization:
         prob_range = np.max(all_step_outputs) - np.min(all_step_outputs)
-        all_step_outputs = (all_step_outputs - np.min(all_step_outputs)) / prob_range
+        if prob_range > 0:
+            all_step_outputs = (all_step_outputs - np.min(all_step_outputs)) / prob_range
 
-    all_step_targets = np.array(all_step_targets)
-
-    # Calculate metrics at the step level
     pred_step_labels = (all_step_outputs > threshold).astype(int)
-    precision = precision_score(all_step_targets, pred_step_labels, zero_division=0)
-    recall = recall_score(all_step_targets, pred_step_labels)
-    f1 = f1_score(all_step_targets, pred_step_labels)
-    accuracy = accuracy_score(all_step_targets, pred_step_labels)
-
-    auc = roc_auc_score(all_step_targets, all_step_outputs)
-    pr_auc = binary_auprc(torch.tensor(pred_step_labels), torch.tensor(all_step_targets))
-
     step_metrics = {
-        const.PRECISION: precision,
-        const.RECALL: recall,
-        const.F1: f1,
-        const.ACCURACY: accuracy,
-        const.AUC: auc,
-        const.PR_AUC: pr_auc
+        const.PRECISION: precision_score(all_step_targets, pred_step_labels, zero_division=0),
+        const.RECALL: recall_score(all_step_targets, pred_step_labels, zero_division=0),
+        const.F1: f1_score(all_step_targets, pred_step_labels, zero_division=0),
+        const.ACCURACY: accuracy_score(all_step_targets, pred_step_labels),
+        const.AUC: roc_auc_score(all_step_targets, all_step_outputs) if len(np.unique(all_step_targets)) == 2 else None,
+        const.PR_AUC: binary_auprc(torch.tensor(pred_step_labels), torch.tensor(all_step_targets)),
     }
 
-    # Print step level metrics
+    # -------------------- Error-Type Analysis (one-vs-rest) --------------------
+    # For each error category t:
+    #   y_true_t = 1 if step has error type t else 0
+    #   y_score  = model's step probability (same as baseline)
+    per_type_metrics = {}
+    if recording_step_error_labels is not None:
+        # Collect which type IDs exist in the data
+        all_type_ids = sorted({t for s in all_step_error_sets for t in s})
+
+        for t in all_type_ids:
+            y_true_t = np.array([1 if (t in s) else 0 for s in all_step_error_sets], dtype=int)
+            y_pred_t = (all_step_outputs > threshold).astype(int)
+
+            per_type_metrics[t] = {
+                "n_pos": int(y_true_t.sum()),
+                "n_total": int(len(y_true_t)),
+                "precision": precision_score(y_true_t, y_pred_t, zero_division=0),
+                "recall": recall_score(y_true_t, y_pred_t, zero_division=0),
+                "f1": f1_score(y_true_t, y_pred_t, zero_division=0),
+                "accuracy": accuracy_score(y_true_t, y_pred_t),
+                "auc": roc_auc_score(y_true_t, all_step_outputs) if len(np.unique(y_true_t)) == 2 else None,
+            }
+
     print("----------------------------------------------------------------")
-    print(f'{phase} Sub Step Level Metrics: {sub_step_metrics}')
+    print(f"{phase} Sub Step Level Metrics: {sub_step_metrics}")
     print(f"{phase} Step Level Metrics: {step_metrics}")
+    if per_type_metrics:
+        print(f"{phase} Error-Type Metrics (one-vs-rest, using step scores):")
+        for t, m in per_type_metrics.items():
+            print(f"  type={t}: {m}")
     print("----------------------------------------------------------------")
 
-    return test_losses, sub_step_metrics, step_metrics
+    return test_losses, sub_step_metrics, step_metrics, per_type_metrics

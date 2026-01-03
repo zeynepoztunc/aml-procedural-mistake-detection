@@ -54,26 +54,26 @@ class CaptainCookSubStepDataset(Dataset):
         assert len(self._sub_step_dict) > 0, "No data found in the dataset"
         return len(self._sub_step_dict)
 
-    def __getitem__(self, idx):
-        recording_id = self._sub_step_dict[idx][0]
-        start_time, end_time = self._sub_step_dict[idx][1]
-        has_errors = self._sub_step_dict[idx][2]
+def __getitem__(self, idx):
+    recording_id = self._sub_step_dict[idx][0]
+    start_time, end_time = self._sub_step_dict[idx][1]
+    has_errors = self._sub_step_dict[idx][2]
 
-        features_path = os.path.join(self._features_directory, self._backbone, f'{recording_id}_360p.mp4_1s_1s.npz')
-        features_data = np.load(features_path)
-        recording_features = features_data['arr_0']
+    features_path = os.path.join(self._features_directory, self._backbone, f'{recording_id}_360p.mp4_1s_1s.npz')
+    features_data = np.load(features_path)
+    recording_features = features_data['arr_0']
 
-        sub_step_features = recording_features[start_time:end_time]
-        sub_step_features = torch.from_numpy(sub_step_features).float()
+    sub_step_features = recording_features[start_time:end_time]
+    sub_step_features = torch.from_numpy(sub_step_features).float()
 
-        if has_errors:
-            sub_step_labels = torch.ones(1, 1)
-        else:
-            sub_step_labels = torch.zeros(1, 1)
+    if has_errors:
+        sub_step_labels = torch.ones(1, 1)
+    else:
+        sub_step_labels = torch.zeros(1, 1)
 
-        features_data.close()
+    features_data.close()
 
-        return sub_step_features, sub_step_labels
+    return sub_step_features, sub_step_labels
 
 
 def collate_fn(batch):
