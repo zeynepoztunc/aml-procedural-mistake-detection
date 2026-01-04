@@ -21,27 +21,30 @@ class LSTM(nn.Module):
         self.fc = nn.Linear(hidden_dim, 1)
         
     def forward(self, x):
-        # x shape: (batch, seq_len, input_dim)
+        # x shape: (batch, seq_len, input_dim) or (seq_len, input_dim)
         
         # Check for NaNs in input and replace them with zero (Robustness)
         x = torch.nan_to_num(x, nan=0.0, posinf=1.0, neginf=-1.0)
         
+        # Ensure input is 3D (Batch, Seq, Dim)
+        # If 2D (Seq, Dim), treat as Batch=1
+        is_unbatched = x.dim() == 2
+        if is_unbatched:
+            x = x.unsqueeze(0)
+            
         # LSTM forward
-        # out shape: (batch, seq_len, hidden_dim) if batch_first=True
-        # OR (seq_len, hidden_dim) if unbatched input
+        # out shape: (batch, seq_len, hidden_dim)
         out, (h_n, c_n) = self.lstm(x)
         
-        # Handle both batched (3D) and unbatched (2D) output
-        if out.dim() == 3:
-            # (Batch, Seq, Hidden) -> Take last time step for each batch
-            last_output = out[:, -1, :]
-        elif out.dim() == 2:
-            # (Seq, Hidden) -> Take last time step
-            last_output = out[-1, :].unsqueeze(0) # Add batch dim back: (1, Hidden)
-        else:
-            raise ValueError(f"Unexpected LSTM output shape: {out.shape}")
+        # Many-to-Many Classification
+        # We want predictions for EVERY time step to match the target shape (Seq, 1)
+        # out: (1, Seq, Hidden) -> (1, Seq, 1)
+        logits = self.fc(out)
         
-        # Classification head
-        logits = self.fc(last_output)
+        if is_unbatched:
+            # Remove batch dim: (1, Seq, 1) -> (Seq, 1)
+            logits = logits.squeeze(0)
+            
+        return logits
         
         return logits
