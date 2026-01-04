@@ -16,6 +16,7 @@ from tqdm import tqdm
 
 from core.models.blocks import fetch_input_dim, MLP
 from core.models.er_former import ErFormer
+from core.models.lstm import LSTM
 from dataloader.CaptainCookStepDataset import collate_fn, CaptainCookStepDataset
 from dataloader.CaptainCookSubStepDataset import CaptainCookSubStepDataset
 
@@ -48,8 +49,11 @@ def fetch_model(config):
             input_dim = fetch_input_dim(config)
             model = MLP(input_dim, 512, 1)
     elif config.variant == const.TRANSFORMER_VARIANT:
-        if config.backbone in [const.OMNIVORE, const.RESNET3D, const.X3D, const.SLOWFAST, const.IMAGEBIND]:
+        if config.backbone in [const.OMNIVORE, const.RESNET3D, const.X3D, const.SLOWFAST, const.IMAGEBIND, const.EGOVLP]:
             model = ErFormer(config)
+    elif config.variant == const.LSTM_VARIANT:
+        if config.backbone in [const.OMNIVORE, const.RESNET3D, const.X3D, const.SLOWFAST, const.IMAGEBIND, const.EGOVLP]:
+            model = LSTM(config)
 
     assert model is not None, f"Model not found for variant: {config.variant} and backbone: {config.backbone}"
     model.to(config.device)
@@ -186,14 +190,15 @@ def train_model_base(train_loader, val_loader, config, test_loader=None):
             for batch_idx, (data, target) in enumerate(train_loader):
                 data, target = data.to(device), target.to(device)
 
-                assert not torch.isnan(data).any(), "Data contains NaN values"
+                # assert not torch.isnan(data).any(), "Data contains NaN values"
 
                 optimizer.zero_grad()
                 output = model(data)
                 loss = criterion(output, target)
 
                 if torch.isnan(loss).any():
-                    print(f"Loss contains NaN values in epoch {epoch}, batch {batch_idx}")
+                    print(f"Warning: NaN loss detected at epoch {epoch}, batch {batch_idx}. Input stats: Min={data.min():.2f}, Max={data.max():.2f}")
+                    optimizer.zero_grad()
                     continue
 
                 # assert not torch.isnan(loss).any(), "Loss contains NaN values"

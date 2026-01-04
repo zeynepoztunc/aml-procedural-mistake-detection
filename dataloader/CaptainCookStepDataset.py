@@ -243,10 +243,40 @@ class CaptainCookStepDataset(Dataset):
         return step_features, step_labels
 
     def _get_video_features(self, recording_id, step_start_end_list):
-        features_path = os.path.join(self._config.segment_features_directory, "video", self._backbone,
-                                         f'{recording_id}_360p.mp4_1s_1s.npz')
-        features_data = np.load(features_path)
-        recording_features = features_data['arr_0']
+        if self._backbone == const.EGOVLP:
+            base_dir = os.path.join(self._config.segment_features_directory, "features", "egovlp")
+            features_path = os.path.join(base_dir, f'{recording_id}.npz')
+
+            # If exact match not found, look for files starting with recording_id
+            if not os.path.exists(features_path):
+                try:
+                    candidates = [f for f in os.listdir(base_dir) if f.startswith(f"{recording_id}_") and f.endswith(".npz")]
+                    if candidates:
+                        features_path = os.path.join(base_dir, candidates[0])
+                except OSError:
+                    pass
+
+            features_data = np.load(features_path)
+            recording_features = features_data['video_features']
+            
+            # --- ROBUSTNESS FIX: Handle NaNs and Normalize ---
+            recording_features = np.nan_to_num(recording_features, nan=0.0, posinf=0.0, neginf=0.0)
+            
+            # Normalize (StandardScaler)
+            mean = np.mean(recording_features, axis=0, keepdims=True)
+            std = np.std(recording_features, axis=0, keepdims=True)
+            std[std < 1e-6] = 1.0
+            recording_features = (recording_features - mean) / std
+            
+            # Clip outliers
+            recording_features = np.clip(recording_features, -10.0, 10.0)
+            # -------------------------------------------------
+            
+        else:
+            features_path = os.path.join(self._config.segment_features_directory, "video", self._backbone,
+                                             f'{recording_id}_360p.mp4_1s_1s.npz')
+            features_data = np.load(features_path)
+            recording_features = features_data['arr_0']
 
         step_features, step_labels = self._build_modality_step_features_labels(recording_features, step_start_end_list)
         features_data.close()
@@ -259,7 +289,7 @@ class CaptainCookStepDataset(Dataset):
         step_features = None
         step_labels = None
         
-        assert self._backbone in [const.OMNIVORE, const.SLOWFAST], "Only Omnivore and SlowFast are supported with this codebase"
+        assert self._backbone in [const.OMNIVORE, const.SLOWFAST, const.EGOVLP], "Only Omnivore, SlowFast and EgoVLP are supported with this codebase"
         step_features, step_labels = self._get_video_features(recording_id, step_start_end_list)
 
         assert step_features is not None, f"Features not found for recording_id: {recording_id}"

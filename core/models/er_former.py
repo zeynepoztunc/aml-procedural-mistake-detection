@@ -17,7 +17,7 @@ class ErFormer(nn.Module):
         decoder_input_dimension = fetch_input_dim(config, decoder=True)
         # Initialize the MLP decoder
         self.decoder = MLP(decoder_input_dimension, 512, 1)
-        # self.apply(init_weights)  # Apply weight initialization
+        self.apply(init_weights)  # Apply weight initialization
 
     def forward(self, input_data):
         # Check for NaNs in input and replace them with zero
@@ -69,6 +69,9 @@ class ErFormer(nn.Module):
 
 def init_weights(m):
     if isinstance(m, nn.Linear):
-        torch.nn.init.kaiming_uniform_(m.weight)
+        torch.nn.init.xavier_uniform_(m.weight)
         if m.bias is not None:
             torch.nn.init.constant_(m.bias, 0)
+    elif isinstance(m, nn.LayerNorm):
+        torch.nn.init.constant_(m.bias, 0)
+        torch.nn.init.constant_(m.weight, 1.0)

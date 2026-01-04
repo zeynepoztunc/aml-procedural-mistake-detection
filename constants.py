@@ -42,9 +42,11 @@ class Constants:
     X3D = "x3d"
     SLOWFAST = "slowfast"
     IMAGEBIND = "imagebind"
+    EGOVLP = "egovlp"
 
     MLP_VARIANT = "MLP"
     TRANSFORMER_VARIANT = "Transformer"
+    LSTM_VARIANT = "LSTM"
     MULTIMODAL_VARIANT = "Multimodal"
 
     # ----------------------- WANDB CONSTANTS -----------------------

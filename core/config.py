@@ -9,7 +9,7 @@ class Config(object):
         """
         Defaults
         """
-        self.backbone = "omnivore"
+        self.backbone = "egovlp"
         self.modality = "video"
         self.phase = "train"
         self.segment_length = 1
@@ -61,7 +61,7 @@ class Config(object):
         parser.add_argument("--ckpt", type=str, default=None, help="checkpoint path")
         parser.add_argument("--seed", type=int, default=42, help="random seed (default: 1000)")
 
-        parser.add_argument("--backbone", type=str, default=const.OMNIVORE, help="backbone model")
+        parser.add_argument("--backbone", type=str, default=const.EGOVLP, help="backbone model")
         parser.add_argument("--ckpt_directory", type=str, default="/data/rohith/captain_cook/checkpoints", help="checkpoint directory")
         parser.add_argument("--split", type=str, default=const.RECORDINGS_SPLIT, help="split")
         parser.add_argument("--variant", type=str, default=const.TRANSFORMER_VARIANT, help="variant")
