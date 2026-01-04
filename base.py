@@ -157,7 +157,11 @@ def train_model_base(train_loader, val_loader, config, test_loader=None):
     model = fetch_model(config)
     device = config.device
     optimizer = optim.Adam(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([2.5], dtype=torch.float32).to(device))
+    
+    # Use pos_weight from config if available, else default to 2.5
+    pos_weight_val = getattr(config, 'pos_weight', 2.5)
+    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([pos_weight_val], dtype=torch.float32).to(device))
+    
     scheduler = ReduceLROnPlateau(
         optimizer, mode='max',
         factor=0.1, patience=5,

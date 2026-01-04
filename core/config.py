@@ -69,6 +69,7 @@ class Config(object):
         parser.add_argument("--task_name", type=str, default=const.ERROR_RECOGNITION, help="task name")
         parser.add_argument("--error_category", type=str, help="error category")
         parser.add_argument("--modality", type=str, nargs="+", default=[const.VIDEO], help="audio")
+        parser.add_argument("--pos_weight", type=float, default=2.5, help="positive class weight for loss function")
 
         return parser
 
