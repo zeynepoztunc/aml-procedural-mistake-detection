@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from core.models.blocks import fetch_input_dim
+print("UTILS.PY YENİ HALİ YÜKLENDİ")
 
 class LSTM(nn.Module):
     def __init__(self, config):
@@ -15,7 +16,7 @@ class LSTM(nn.Module):
             hidden_size=hidden_dim,
             num_layers=num_layers,
             batch_first=True,
-            dropout=0.5 if num_layers > 1 else 0
+            dropout=0.2 if num_layers > 1 else 0
         )
         
         self.fc = nn.Linear(hidden_dim, 1)
