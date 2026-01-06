@@ -215,13 +215,15 @@ def train_model_base(train_loader, val_loader, config, test_loader=None):
                     f'Train Epoch: {epoch}, Progress: {batch_idx}/{num_batches}, Loss: {loss.item():.6f}'
                 )
 
-            val_losses, sub_step_metrics, step_metrics = test_er_model(model, val_loader, criterion, device, phase='val')
+            # Use threshold from config
+            eval_threshold = getattr(config, 'threshold', 0.6)
+            val_losses, sub_step_metrics, step_metrics = test_er_model(model, val_loader, criterion, device, phase='val', threshold=eval_threshold)
 
             scheduler.step(step_metrics[const.AUC])
 
             if test_loader is not None:
                 test_losses, test_sub_step_metrics, test_step_metrics = test_er_model(model, test_loader, criterion,
-                                                                                      device, phase='test')
+                                                                                      device, phase='test', threshold=eval_threshold)
 
             avg_train_loss = sum(train_losses) / len(train_losses)
             avg_val_loss = sum(val_losses) / len(val_losses)

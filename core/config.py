@@ -70,6 +70,7 @@ class Config(object):
         parser.add_argument("--error_category", type=str, help="error category")
         parser.add_argument("--modality", type=str, nargs="+", default=[const.VIDEO], help="audio")
         parser.add_argument("--pos_weight", type=float, default=2.5, help="positive class weight for loss function")
+        parser.add_argument("--threshold", type=float, default=0.6, help="classification threshold (0.6 for step split, 0.5 for recordings split)")
 
         return parser
 
