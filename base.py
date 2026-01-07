@@ -413,25 +413,39 @@ def test_er_model(model, test_loader, criterion, device, phase, step_normalizati
         #     step_output = pos_output
         # else:
         #     step_output = neg_output
-        step_output = np.array(step_output)
-        # # Scale the output to [0, 1]
-        if start - end > 1:
-            if sub_step_normalization:
-                prob_range = np.max(step_output) - np.min(step_output)
-                step_output = (step_output - np.min(step_output)) / prob_range
+        if len(step_output) == 0:
+            # Handle empty steps (robustness)
+            mean_step_output = 0.0 
+            step_target = 0
+            # Optional: Log warning if needed, but safe default avoids crash
+            # print(f"Warning: Empty step encountered at index {start}:{end}")
+        else:
+            step_output = np.array(step_output)
+            # # Scale the output to [0, 1]
+            if start - end > 1:
+                if sub_step_normalization:
+                    prob_range = np.max(step_output) - np.min(step_output)
+                    step_output = (step_output - np.min(step_output)) / prob_range
 
-        mean_step_output = np.mean(step_output)
-        step_target = 1 if np.mean(step_target) > 0.95 else 0
+            mean_step_output = np.mean(step_output)
+            step_target = 1 if np.mean(step_target) > 0.95 else 0
 
         all_step_outputs.append(mean_step_output)
         all_step_targets.append(step_target)
 
     all_step_outputs = np.array(all_step_outputs)
+    
+    # Remove any NaNs that might have slipped through
+    # (though the check above should handle empty steps)
+    if np.isnan(all_step_outputs).any():
+        print("Warning: NaNs detected in all_step_outputs. Replacing with 0.")
+        all_step_outputs = np.nan_to_num(all_step_outputs, nan=0.0)
 
     # # Scale the output to [0, 1]
-    if step_normalization:
+    if step_normalization and len(all_step_outputs) > 0:
         prob_range = np.max(all_step_outputs) - np.min(all_step_outputs)
-        all_step_outputs = (all_step_outputs - np.min(all_step_outputs)) / prob_range
+        if prob_range > 1e-9: # Avoid division by zero
+             all_step_outputs = (all_step_outputs - np.min(all_step_outputs)) / prob_range
 
     all_step_targets = np.array(all_step_targets)
 
