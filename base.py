@@ -201,7 +201,10 @@ def train_model_base(train_loader, val_loader, config, test_loader=None):
                 loss = criterion(output, target)
 
                 if torch.isnan(loss).any():
-                    print(f"Warning: NaN loss detected at epoch {epoch}, batch {batch_idx}. Input stats: Min={data.min():.2f}, Max={data.max():.2f}")
+                    if data.numel() > 0:
+                        print(f"Warning: NaN loss detected at epoch {epoch}, batch {batch_idx}. Input stats: Min={data.min():.2f}, Max={data.max():.2f}")
+                    else:
+                        print(f"Warning: NaN loss detected at epoch {epoch}, batch {batch_idx}. Empty batch encountered.")
                     optimizer.zero_grad()
                     continue
 
