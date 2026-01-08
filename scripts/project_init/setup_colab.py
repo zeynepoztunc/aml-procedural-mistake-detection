@@ -1,12 +1,13 @@
 """
 This script handles the initial setup for the AML Mistake Detection project in a Google Colab environment.
 
-It automates mounting Google Drive and unzipping the required checkpoint files.
+It automates mounting Google Drive and unzipping the required checkpoint and feature files.
 
 Instructions for use in a Colab Notebook:
 1. Make sure you have:
    a) Your project folder ('aml-procedural-mistake-detection') in the root of your Google Drive.
    b) The 'checkpoints.zip' file located in 'My Drive/AML/CaptainCook4D/'.
+   c) The 'omnivore.zip' file located in 'My Drive/AML/CaptainCook4D/features/'.
 2. Run the following code in a Colab cell to execute this script:
 
    !python "/content/drive/My Drive/aml-procedural-mistake-detection/scripts/project_init/setup_colab.py"
@@ -59,10 +60,10 @@ def create_project_directories():
     else:
         print(f"Directory already exists: {features_dir}")
     
-    return checkpoints_dir
+    return checkpoints_dir, features_dir
 
 
-def unzip_files(checkpoints_dir):
+def unzip_files(checkpoints_dir, features_dir):
     """Unzips the required files from Google Drive to their respective folders."""
     print("\nAttempting to unzip required files...")
 
@@ -74,34 +75,45 @@ def unzip_files(checkpoints_dir):
         try:
             with zipfile.ZipFile(checkpoints_zip_path, 'r') as zip_ref:
                 zip_ref.extractall(checkpoints_dir)
-            print(f"Successfully unzipped '{checkpoints_zip_path}' to '{checkpoints_dir}'")
+            print(f"✅ Successfully unzipped '{checkpoints_zip_path}' to '{checkpoints_dir}'")
         except Exception as e:
             print(f"ERROR: Failed to unzip {checkpoints_zip_path}. Reason: {e}")
     else:
         print("ERROR: 'checkpoints.zip' not found at the specified location.")
         print("Please ensure 'checkpoints.zip' is in 'My Drive/AML/CaptainCook4D/'")
 
+    # Unzip features
+    features_zip_path = os.path.join(ZIP_SOURCE_DIR, "features", "omnivore.zip")
+    print(f"Looking for features zip at: {features_zip_path}")
+
+    if os.path.exists(features_zip_path):
+        try:
+            with zipfile.ZipFile(features_zip_path, 'r') as zip_ref:
+                zip_ref.extractall(features_dir)
+            print(f"✅ Successfully unzipped '{features_zip_path}' to '{features_dir}'")
+        except Exception as e:
+            print(f"ERROR: Failed to unzip {features_zip_path}. Reason: {e}")
+    else:
+        print("ERROR: 'omnivore.zip' not found at the specified location.")
+        print("Please ensure 'omnivore.zip' is in 'My Drive/AML/CaptainCook4D/features/'")
+
 
 def display_next_steps():
     """Prints the manual next steps for the user to follow in their Colab notebook."""
     print("\n--- ✅ Initial Setup Complete ---")
+    print("\n--- All data has been unzipped. You are ready to run the model. ---")
     print("\n--- Next Steps ---")
     print("Please run the following commands in separate Colab cells:")
     print("\n# 1. Change directory to the project folder:")
     print(f'%cd "{PROJECT_PATH}"')
     print("\n# 2. Install Python dependencies:")
     print("!pip install -r requirements.txt")
-    print("\n# 3. Manually download and place the dataset:")
-    print("  - The 'checkpoints.zip' file has been automatically unzipped for you.")
-    print("  - ⚠️ ACTION REQUIRED: You still need to find and place the dataset features.")
-    print("  - Find the link for the 'pre-extracted features', download them, and place them in:")
-    print(f"  - {os.path.join(PROJECT_PATH, 'data/features/')}")
-    print("\n# 4. Once the dataset is in place, you can run the evaluation script, for example:")
+    print("\n# 3. Once dependencies are installed, you can run the evaluation script, for example:")
     print("!python -m core.evaluate --variant MLP --backbone omnivore --ckpt checkpoints/error_recognition_best/MLP/omnivore/error_recognition_MLP_omnivore_step_epoch_43.pt --split step --threshold 0.6")
 
 
 if __name__ == "__main__":
     mount_google_drive()
-    checkpoints_destination = create_project_directories()
-    unzip_files(checkpoints_destination)
+    checkpoints_dest, features_dest = create_project_directories()
+    unzip_files(checkpoints_dest, features_dest)
     display_next_steps()
