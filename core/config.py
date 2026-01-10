@@ -17,11 +17,11 @@ class Config(object):
         # Use this for 1 sec video features
         self.segment_features_directory = "data/"
 
-        self.ckpt_directory = "/data/rohith/captain_cook/checkpoints/"
+        self.ckpt_directory = "checkpoints/"
         self.split = "recordings"
-        self.batch_size = 1
-        self.test_batch_size = 1
-        self.num_epochs = 10
+        self.batch_size = 32
+        self.test_batch_size = 32
+        self.num_epochs = 20
         self.lr = 1e-3
         self.weight_decay = 1e-3
         self.log_interval = 5
