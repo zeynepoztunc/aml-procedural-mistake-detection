@@ -192,12 +192,34 @@ The dataset relies on structured JSON files in `annotations/`.
 Phase 2 changes the game. Instead of asking "Is this 10-second clip wrong?", we
 ask "Is this entire 5-minute video a valid execution of the recipe?".
 
+#### What you run (and where outputs go)
+
+The extension is organized as 4 notebooks (`extension_step1_*` → `extension_step4_*`) and writes its intermediate/final artifacts under `extension_data/`:
+
+- **Step 1 output:** `extension_data/step_embeddings_gt.pkl`
+- **Step 2 output:** `extension_data/task_verification_results.json` (+ plots like `extension_data/task_verification_baselines.png`)
+- **Step 3 output:** `extension_data/realized_task_graphs.pkl` (+ plots like `extension_data/matching_analysis.png`)
+- **Step 4 output:** `extension_data/gnn_results.json` (+ plots like `extension_data/gnn_comparison.png`)
+
+If you run locally (without Jupyter), the runner generates scripts + logs under `tools/_runs/extension_local/` (see `docs/RUN_EXTENSION_LOCALLY.md`).
+
 **1. Step Localization (ActionFormer)** Since we input a raw video, we first
 need to find _where_ the steps are.
 
 - **Input:** Full video features.
 - **Output:** A list of `(Start, End)` timestamps.
 - _Analogy:_ Like highlighting sentences in a paragraph.
+
+In practice in this repo, Step 1 produces **step-level embeddings** (one vector per detected step) by **pooling** the EgoVLP video features inside each `(start, end)` segment. Those embeddings are stored in `extension_data/step_embeddings_gt.pkl` and become the “dataset” for the rest of the extension.
+
+**What is a Task Graph, and where does it come from?**
+
+A **task graph** is a directed graph (usually a DAG) that encodes the valid structure of a recipe:
+
+- **Nodes** = canonical recipe steps (e.g., “Crack eggs”, “Whisk”, “Heat pan”).
+- **Edges** = allowed transitions / ordering constraints between steps.
+
+In CaptainCook4D, task graphs can be provided as ground-truth recipe templates (one per recipe type). In this repo, Step 3 looks for `annotations/annotation_json/task_graphs.json`. If it exists, we load it. If it doesn’t (common in this cleaned repo), Step 3 **builds a task-graph template from `annotations/annotation_json/step_annotations.json`** by grouping steps by recipe id and using the step descriptions as node text. That fallback gives you the **nodes** reliably; edges may be simplified compared to the official CaptainCook4D task graphs.
 
 **2. Graph Matching (The "Alignment" Problem)** We have a set of detected video
 steps ($V_1, V_2, V_3$) and a "Task Graph" of recipe instructions
@@ -209,12 +231,49 @@ steps ($V_1, V_2, V_3$) and a "Task Graph" of recipe instructions
 - We use the **Hungarian Algorithm** to find the optimal assignment (e.g.,
   $V_1 \to T_1$, $V_2 \to T_2$).
 
+In Step 3, we build (or load) a **task graph template** per recipe, encode each node’s step description into a text embedding, then compute an assignment between:
+
+- video step embeddings (from Step 1), and
+- task-graph node embeddings (text),
+
+using a **similarity matrix** + **Hungarian matching**. The result is a “realized” graph (task graph populated with what the video did), saved to `extension_data/realized_task_graphs.pkl`.
+
 **3. GNN Classification** Once we've "filled in" the Task Graph with our
 observed video clips, we ask the GNN:
 
 - "Is this path valid?"
 - If the video showed steps $A \to C \to B$, but the graph says only
   $A \to B \to C$ is allowed, the GNN should predict **Mistake**.
+
+In Step 4, we convert each realized task graph into a PyTorch Geometric `Data` graph and train **graph classifiers** (GCN / GAT / GraphSAGE) to predict the recipe-level label (correct vs incorrect) under a leave-one-recipe-out evaluation.
+
+#### How results are computed (metrics + evaluation protocol)
+
+Both Step 2 and Step 4 report the standard binary classification metrics:
+
+- **Accuracy, Precision, Recall, F1, AUC**
+
+The extension uses **leave-one-recipe-out cross-validation** (each “fold” holds out one recipe id and trains on the rest), which is a good fit for the small number of recipe types.
+
+#### What results should you aim for (practical targets)
+
+Exact numbers depend on features, hyperparameters, and randomness, but as a sanity check on this repo’s current extension outputs:
+
+- **Step 2 (no graphs):** Transformer baseline around **~0.66 accuracy / ~0.69 F1** (`extension_data/task_verification_results.json`).
+- **Step 4 (graph-based):** GNNs improve over pooling; best run is around **~0.72 accuracy** and **~0.84 AUC** (`extension_data/gnn_results.json`).
+
+As a project goal, you typically want the **graph-based models** to beat the **non-graph baselines**, especially on **AUC** (ranking quality) and **F1** (class-imbalance robustness).
+
+#### How to improve results (common levers)
+
+If you’re below the target ranges, the fastest wins are usually:
+
+- **Use GPU for Step 4** (PyG): it enables more epochs / sweeps quickly and reduces “I gave up” runs.
+- **Tune class imbalance**: adjust `pos_weight`, decision threshold, and/or calibrate on validation folds to improve F1.
+- **Improve step embeddings (Step 1)**: better step boundaries (localization), better pooling (e.g., top-k instead of mean), and sanity-check step counts per video.
+- **Improve text embeddings (Step 3)**: try a stronger text encoder than `distilbert-base-uncased`, and cache/download once to avoid inconsistent runs.
+- **Improve matching (Step 3)**: normalize embeddings, use cosine similarity, and consider adding a “no-match” option (so forced matches don’t corrupt the realized graph).
+- **Improve the GNN (Step 4)**: hidden dim, dropout, number of layers, and global pooling choice often move AUC/Acc materially; GraphSAGE often wins AUC, GAT often wins accuracy (as seen in `extension_data/gnn_results.json`).
 
 ---
 

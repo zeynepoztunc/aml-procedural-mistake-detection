@@ -1,0 +1,876 @@
+{
+  "summary": {
+    "MLP": {
+      "accuracy": {
+        "mean": 0.6108351592436344,
+        "std": 0.10921974929996695
+      },
+      "precision": {
+        "mean": 0.6623815998815998,
+        "std": 0.15076386592819344
+      },
+      "recall": {
+        "mean": 0.7203428515928515,
+        "std": 0.2362753157012
+      },
+      "f1": {
+        "mean": 0.6532386782464182,
+        "std": 0.14701644855113966
+      },
+      "auc": {
+        "mean": 0.6800124913666581,
+        "std": 0.12772736962203107
+      }
+    },
+    "Transformer": {
+      "accuracy": {
+        "mean": 0.6597581044901091,
+        "std": 0.13818505186821892
+      },
+      "precision": {
+        "mean": 0.6883141640494581,
+        "std": 0.16426181385119043
+      },
+      "recall": {
+        "mean": 0.7275523088023088,
+        "std": 0.1881306505583249
+      },
+      "f1": {
+        "mean": 0.6937269391940276,
+        "std": 0.1524799122336375
+      },
+      "auc": {
+        "mean": 0.6775578549536884,
+        "std": 0.15666657918031288
+      }
+    },
+    "LSTM": {
+      "accuracy": {
+        "mean": 0.5874604989881692,
+        "std": 0.13277162194284536
+      },
+      "precision": {
+        "mean": 0.6294906482406483,
+        "std": 0.1656118064594948
+      },
+      "recall": {
+        "mean": 0.6866547804047803,
+        "std": 0.2584366718436212
+      },
+      "f1": {
+        "mean": 0.6224489387318335,
+        "std": 0.18455008000801829
+      },
+      "auc": {
+        "mean": 0.6922648242960743,
+        "std": 0.13665600762956032
+      }
+    }
+  },
+  "mlp_folds": [
+    {
+      "fold": 0,
+      "test_recipe": "1",
+      "train_size": 365,
+      "test_size": 18,
+      "accuracy": 0.7777777777777778,
+      "precision": 0.8,
+      "recall": 0.9230769230769231,
+      "f1": 0.8571428571428571,
+      "auc": 0.5692307692307692
+    },
+    {
+      "fold": 1,
+      "test_recipe": "10",
+      "train_size": 371,
+      "test_size": 12,
+      "accuracy": 0.4166666666666667,
+      "precision": 0.6666666666666666,
+      "recall": 0.25,
+      "f1": 0.36363636363636365,
+      "auc": 0.6875
+    },
+    {
+      "fold": 2,
+      "test_recipe": "12",
+      "train_size": 366,
+      "test_size": 17,
+      "accuracy": 0.5294117647058824,
+      "precision": 0.42857142857142855,
+      "recall": 1.0,
+      "f1": 0.6,
+      "auc": 0.8181818181818181
+    },
+    {
+      "fold": 3,
+      "test_recipe": "13",
+      "train_size": 369,
+      "test_size": 14,
+      "accuracy": 0.5,
+      "precision": 1.0,
+      "recall": 0.2222222222222222,
+      "f1": 0.36363636363636365,
+      "auc": 0.7777777777777777
+    },
+    {
+      "fold": 4,
+      "test_recipe": "15",
+      "train_size": 368,
+      "test_size": 15,
+      "accuracy": 0.4666666666666667,
+      "precision": 0.6,
+      "recall": 0.6,
+      "f1": 0.6,
+      "auc": 0.5399999999999999
+    },
+    {
+      "fold": 5,
+      "test_recipe": "16",
+      "train_size": 367,
+      "test_size": 16,
+      "accuracy": 0.6875,
+      "precision": 0.7777777777777778,
+      "recall": 0.7,
+      "f1": 0.7368421052631579,
+      "auc": 0.65
+    },
+    {
+      "fold": 6,
+      "test_recipe": "17",
+      "train_size": 363,
+      "test_size": 20,
+      "accuracy": 0.5,
+      "precision": 0.42857142857142855,
+      "recall": 0.75,
+      "f1": 0.5454545454545454,
+      "auc": 0.4791666666666667
+    },
+    {
+      "fold": 7,
+      "test_recipe": "18",
+      "train_size": 368,
+      "test_size": 15,
+      "accuracy": 0.8,
+      "precision": 0.7857142857142857,
+      "recall": 1.0,
+      "f1": 0.88,
+      "auc": 0.8181818181818181
+    },
+    {
+      "fold": 8,
+      "test_recipe": "2",
+      "train_size": 367,
+      "test_size": 16,
+      "accuracy": 0.6875,
+      "precision": 0.8571428571428571,
+      "recall": 0.6,
+      "f1": 0.7058823529411765,
+      "auc": 0.7666666666666668
+    },
+    {
+      "fold": 9,
+      "test_recipe": "20",
+      "train_size": 369,
+      "test_size": 14,
+      "accuracy": 0.7142857142857143,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "f1": 0.8,
+      "auc": 0.6875
+    },
+    {
+      "fold": 10,
+      "test_recipe": "21",
+      "train_size": 364,
+      "test_size": 19,
+      "accuracy": 0.7368421052631579,
+      "precision": 0.7692307692307693,
+      "recall": 0.8333333333333334,
+      "f1": 0.8,
+      "auc": 0.726190476190476
+    },
+    {
+      "fold": 11,
+      "test_recipe": "22",
+      "train_size": 366,
+      "test_size": 17,
+      "accuracy": 0.7647058823529411,
+      "precision": 0.8181818181818182,
+      "recall": 0.8181818181818182,
+      "f1": 0.8181818181818182,
+      "auc": 0.9090909090909092
+    },
+    {
+      "fold": 12,
+      "test_recipe": "23",
+      "train_size": 367,
+      "test_size": 16,
+      "accuracy": 0.5,
+      "precision": 0.4166666666666667,
+      "recall": 0.8333333333333334,
+      "f1": 0.5555555555555556,
+      "auc": 0.5166666666666667
+    },
+    {
+      "fold": 13,
+      "test_recipe": "25",
+      "train_size": 368,
+      "test_size": 15,
+      "accuracy": 0.6666666666666666,
+      "precision": 0.7142857142857143,
+      "recall": 0.625,
+      "f1": 0.6666666666666666,
+      "auc": 0.7142857142857143
+    },
+    {
+      "fold": 14,
+      "test_recipe": "26",
+      "train_size": 366,
+      "test_size": 17,
+      "accuracy": 0.6470588235294118,
+      "precision": 0.7,
+      "recall": 0.7,
+      "f1": 0.7,
+      "auc": 0.8142857142857143
+    },
+    {
+      "fold": 15,
+      "test_recipe": "27",
+      "train_size": 368,
+      "test_size": 15,
+      "accuracy": 0.5333333333333333,
+      "precision": 0.6666666666666666,
+      "recall": 0.4444444444444444,
+      "f1": 0.5333333333333333,
+      "auc": 0.6851851851851851
+    },
+    {
+      "fold": 16,
+      "test_recipe": "28",
+      "train_size": 365,
+      "test_size": 18,
+      "accuracy": 0.5,
+      "precision": 0.6666666666666666,
+      "recall": 0.36363636363636365,
+      "f1": 0.47058823529411764,
+      "auc": 0.6103896103896104
+    },
+    {
+      "fold": 17,
+      "test_recipe": "29",
+      "train_size": 365,
+      "test_size": 18,
+      "accuracy": 0.6666666666666666,
+      "precision": 0.75,
+      "recall": 0.75,
+      "f1": 0.75,
+      "auc": 0.7083333333333333
+    },
+    {
+      "fold": 18,
+      "test_recipe": "3",
+      "train_size": 370,
+      "test_size": 13,
+      "accuracy": 0.6923076923076923,
+      "precision": 0.7,
+      "recall": 0.875,
+      "f1": 0.7777777777777778,
+      "auc": 0.475
+    },
+    {
+      "fold": 19,
+      "test_recipe": "4",
+      "train_size": 366,
+      "test_size": 17,
+      "accuracy": 0.6470588235294118,
+      "precision": 0.5384615384615384,
+      "recall": 1.0,
+      "f1": 0.7,
+      "auc": 0.8428571428571429
+    },
+    {
+      "fold": 20,
+      "test_recipe": "5",
+      "train_size": 368,
+      "test_size": 15,
+      "accuracy": 0.4666666666666667,
+      "precision": 0.4666666666666667,
+      "recall": 1.0,
+      "f1": 0.6363636363636364,
+      "auc": 0.6071428571428571
+    },
+    {
+      "fold": 21,
+      "test_recipe": "7",
+      "train_size": 367,
+      "test_size": 16,
+      "accuracy": 0.5625,
+      "precision": 0.6363636363636364,
+      "recall": 0.7,
+      "f1": 0.6666666666666666,
+      "auc": 0.5166666666666667
+    },
+    {
+      "fold": 22,
+      "test_recipe": "8",
+      "train_size": 367,
+      "test_size": 16,
+      "accuracy": 0.625,
+      "precision": 0.6428571428571429,
+      "recall": 0.9,
+      "f1": 0.75,
+      "auc": 0.8666666666666667
+    },
+    {
+      "fold": 23,
+      "test_recipe": "9",
+      "train_size": 369,
+      "test_size": 14,
+      "accuracy": 0.5714285714285714,
+      "precision": 0.4,
+      "recall": 0.4,
+      "f1": 0.4,
+      "auc": 0.5333333333333334
+    }
+  ],
+  "transformer_folds": [
+    {
+      "fold": 0,
+      "test_recipe": "1",
+      "train_size": 365,
+      "test_size": 18,
+      "accuracy": 0.7777777777777778,
+      "precision": 0.7647058823529411,
+      "recall": 1.0,
+      "f1": 0.8666666666666667,
+      "auc": 0.4307692307692308
+    },
+    {
+      "fold": 1,
+      "test_recipe": "10",
+      "train_size": 371,
+      "test_size": 12,
+      "accuracy": 0.4166666666666667,
+      "precision": 0.6,
+      "recall": 0.375,
+      "f1": 0.46153846153846156,
+      "auc": 0.5625
+    },
+    {
+      "fold": 2,
+      "test_recipe": "12",
+      "train_size": 366,
+      "test_size": 17,
+      "accuracy": 0.5294117647058824,
+      "precision": 0.42857142857142855,
+      "recall": 1.0,
+      "f1": 0.6,
+      "auc": 0.8939393939393939
+    },
+    {
+      "fold": 3,
+      "test_recipe": "13",
+      "train_size": 369,
+      "test_size": 14,
+      "accuracy": 0.7142857142857143,
+      "precision": 0.8571428571428571,
+      "recall": 0.6666666666666666,
+      "f1": 0.75,
+      "auc": 0.8
+    },
+    {
+      "fold": 4,
+      "test_recipe": "15",
+      "train_size": 368,
+      "test_size": 15,
+      "accuracy": 0.6,
+      "precision": 0.7,
+      "recall": 0.7,
+      "f1": 0.7,
+      "auc": 0.5800000000000001
+    },
+    {
+      "fold": 5,
+      "test_recipe": "16",
+      "train_size": 367,
+      "test_size": 16,
+      "accuracy": 0.625,
+      "precision": 0.75,
+      "recall": 0.6,
+      "f1": 0.6666666666666666,
+      "auc": 0.7333333333333334
+    },
+    {
+      "fold": 6,
+      "test_recipe": "17",
+      "train_size": 363,
+      "test_size": 20,
+      "accuracy": 0.55,
+      "precision": 0.42857142857142855,
+      "recall": 0.375,
+      "f1": 0.4,
+      "auc": 0.45833333333333337
+    },
+    {
+      "fold": 7,
+      "test_recipe": "18",
+      "train_size": 368,
+      "test_size": 15,
+      "accuracy": 0.9333333333333333,
+      "precision": 1.0,
+      "recall": 0.9090909090909091,
+      "f1": 0.9523809523809523,
+      "auc": 0.9545454545454546
+    },
+    {
+      "fold": 8,
+      "test_recipe": "2",
+      "train_size": 367,
+      "test_size": 16,
+      "accuracy": 0.6875,
+      "precision": 0.7272727272727273,
+      "recall": 0.8,
+      "f1": 0.7619047619047619,
+      "auc": 0.7833333333333334
+    },
+    {
+      "fold": 9,
+      "test_recipe": "20",
+      "train_size": 369,
+      "test_size": 14,
+      "accuracy": 0.7857142857142857,
+      "precision": 0.7777777777777778,
+      "recall": 0.875,
+      "f1": 0.8235294117647058,
+      "auc": 0.7083333333333333
+    },
+    {
+      "fold": 10,
+      "test_recipe": "21",
+      "train_size": 364,
+      "test_size": 19,
+      "accuracy": 0.7368421052631579,
+      "precision": 0.8181818181818182,
+      "recall": 0.75,
+      "f1": 0.782608695652174,
+      "auc": 0.7976190476190476
+    },
+    {
+      "fold": 11,
+      "test_recipe": "22",
+      "train_size": 366,
+      "test_size": 17,
+      "accuracy": 0.8235294117647058,
+      "precision": 0.8333333333333334,
+      "recall": 0.9090909090909091,
+      "f1": 0.8695652173913043,
+      "auc": 0.7878787878787878
+    },
+    {
+      "fold": 12,
+      "test_recipe": "23",
+      "train_size": 367,
+      "test_size": 16,
+      "accuracy": 0.375,
+      "precision": 0.3333333333333333,
+      "recall": 0.6666666666666666,
+      "f1": 0.4444444444444444,
+      "auc": 0.3166666666666666
+    },
+    {
+      "fold": 13,
+      "test_recipe": "25",
+      "train_size": 368,
+      "test_size": 15,
+      "accuracy": 0.8,
+      "precision": 0.7272727272727273,
+      "recall": 1.0,
+      "f1": 0.8421052631578947,
+      "auc": 0.7678571428571428
+    },
+    {
+      "fold": 14,
+      "test_recipe": "26",
+      "train_size": 366,
+      "test_size": 17,
+      "accuracy": 0.6470588235294118,
+      "precision": 0.75,
+      "recall": 0.6,
+      "f1": 0.6666666666666666,
+      "auc": 0.7428571428571429
+    },
+    {
+      "fold": 15,
+      "test_recipe": "27",
+      "train_size": 368,
+      "test_size": 15,
+      "accuracy": 0.6,
+      "precision": 0.6666666666666666,
+      "recall": 0.6666666666666666,
+      "f1": 0.6666666666666666,
+      "auc": 0.7037037037037037
+    },
+    {
+      "fold": 16,
+      "test_recipe": "28",
+      "train_size": 365,
+      "test_size": 18,
+      "accuracy": 0.4444444444444444,
+      "precision": 0.5454545454545454,
+      "recall": 0.5454545454545454,
+      "f1": 0.5454545454545454,
+      "auc": 0.5194805194805194
+    },
+    {
+      "fold": 17,
+      "test_recipe": "29",
+      "train_size": 365,
+      "test_size": 18,
+      "accuracy": 0.6111111111111112,
+      "precision": 0.7777777777777778,
+      "recall": 0.5833333333333334,
+      "f1": 0.6666666666666666,
+      "auc": 0.7361111111111112
+    },
+    {
+      "fold": 18,
+      "test_recipe": "3",
+      "train_size": 370,
+      "test_size": 13,
+      "accuracy": 0.6153846153846154,
+      "precision": 0.7142857142857143,
+      "recall": 0.625,
+      "f1": 0.6666666666666666,
+      "auc": 0.625
+    },
+    {
+      "fold": 19,
+      "test_recipe": "4",
+      "train_size": 366,
+      "test_size": 17,
+      "accuracy": 0.7647058823529411,
+      "precision": 0.6666666666666666,
+      "recall": 0.8571428571428571,
+      "f1": 0.75,
+      "auc": 0.8285714285714285
+    },
+    {
+      "fold": 20,
+      "test_recipe": "5",
+      "train_size": 368,
+      "test_size": 15,
+      "accuracy": 0.6,
+      "precision": 0.5454545454545454,
+      "recall": 0.8571428571428571,
+      "f1": 0.6666666666666666,
+      "auc": 0.625
+    },
+    {
+      "fold": 21,
+      "test_recipe": "7",
+      "train_size": 367,
+      "test_size": 16,
+      "accuracy": 0.8125,
+      "precision": 0.8181818181818182,
+      "recall": 0.9,
+      "f1": 0.8571428571428571,
+      "auc": 0.7000000000000001
+    },
+    {
+      "fold": 22,
+      "test_recipe": "8",
+      "train_size": 367,
+      "test_size": 16,
+      "accuracy": 0.8125,
+      "precision": 0.8888888888888888,
+      "recall": 0.8,
+      "f1": 0.8421052631578947,
+      "auc": 0.7833333333333334
+    },
+    {
+      "fold": 23,
+      "test_recipe": "9",
+      "train_size": 369,
+      "test_size": 14,
+      "accuracy": 0.5714285714285714,
+      "precision": 0.4,
+      "recall": 0.4,
+      "f1": 0.4,
+      "auc": 0.4222222222222223
+    }
+  ],
+  "lstm_folds": [
+    {
+      "fold": 0,
+      "test_recipe": "1",
+      "train_size": 365,
+      "test_size": 18,
+      "accuracy": 0.7777777777777778,
+      "precision": 0.8,
+      "recall": 0.9230769230769231,
+      "f1": 0.8571428571428571,
+      "auc": 0.5230769230769231
+    },
+    {
+      "fold": 1,
+      "test_recipe": "10",
+      "train_size": 371,
+      "test_size": 12,
+      "accuracy": 0.5,
+      "precision": 0.75,
+      "recall": 0.375,
+      "f1": 0.5,
+      "auc": 0.65625
+    },
+    {
+      "fold": 2,
+      "test_recipe": "12",
+      "train_size": 366,
+      "test_size": 17,
+      "accuracy": 0.5294117647058824,
+      "precision": 0.4166666666666667,
+      "recall": 0.8333333333333334,
+      "f1": 0.5555555555555556,
+      "auc": 0.803030303030303
+    },
+    {
+      "fold": 3,
+      "test_recipe": "13",
+      "train_size": 369,
+      "test_size": 14,
+      "accuracy": 0.5714285714285714,
+      "precision": 1.0,
+      "recall": 0.3333333333333333,
+      "f1": 0.5,
+      "auc": 0.6666666666666667
+    },
+    {
+      "fold": 4,
+      "test_recipe": "15",
+      "train_size": 368,
+      "test_size": 15,
+      "accuracy": 0.5333333333333333,
+      "precision": 0.6666666666666666,
+      "recall": 0.6,
+      "f1": 0.631578947368421,
+      "auc": 0.5
+    },
+    {
+      "fold": 5,
+      "test_recipe": "16",
+      "train_size": 367,
+      "test_size": 16,
+      "accuracy": 0.75,
+      "precision": 0.8,
+      "recall": 0.8,
+      "f1": 0.8,
+      "auc": 0.7833333333333333
+    },
+    {
+      "fold": 6,
+      "test_recipe": "17",
+      "train_size": 363,
+      "test_size": 20,
+      "accuracy": 0.5,
+      "precision": 0.42857142857142855,
+      "recall": 0.75,
+      "f1": 0.5454545454545454,
+      "auc": 0.625
+    },
+    {
+      "fold": 7,
+      "test_recipe": "18",
+      "train_size": 368,
+      "test_size": 15,
+      "accuracy": 0.7333333333333333,
+      "precision": 0.7333333333333333,
+      "recall": 1.0,
+      "f1": 0.8461538461538461,
+      "auc": 0.9545454545454546
+    },
+    {
+      "fold": 8,
+      "test_recipe": "2",
+      "train_size": 367,
+      "test_size": 16,
+      "accuracy": 0.5,
+      "precision": 0.6,
+      "recall": 0.6,
+      "f1": 0.6,
+      "auc": 0.6166666666666667
+    },
+    {
+      "fold": 9,
+      "test_recipe": "20",
+      "train_size": 369,
+      "test_size": 14,
+      "accuracy": 0.7142857142857143,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "f1": 0.8,
+      "auc": 0.8333333333333333
+    },
+    {
+      "fold": 10,
+      "test_recipe": "21",
+      "train_size": 364,
+      "test_size": 19,
+      "accuracy": 0.6842105263157895,
+      "precision": 0.7142857142857143,
+      "recall": 0.8333333333333334,
+      "f1": 0.7692307692307693,
+      "auc": 0.6666666666666666
+    },
+    {
+      "fold": 11,
+      "test_recipe": "22",
+      "train_size": 366,
+      "test_size": 17,
+      "accuracy": 0.8823529411764706,
+      "precision": 0.8461538461538461,
+      "recall": 1.0,
+      "f1": 0.9166666666666666,
+      "auc": 0.9090909090909092
+    },
+    {
+      "fold": 12,
+      "test_recipe": "23",
+      "train_size": 367,
+      "test_size": 16,
+      "accuracy": 0.375,
+      "precision": 0.3,
+      "recall": 0.5,
+      "f1": 0.375,
+      "auc": 0.48333333333333334
+    },
+    {
+      "fold": 13,
+      "test_recipe": "25",
+      "train_size": 368,
+      "test_size": 15,
+      "accuracy": 0.4666666666666667,
+      "precision": 0.5,
+      "recall": 0.125,
+      "f1": 0.2,
+      "auc": 0.7857142857142858
+    },
+    {
+      "fold": 14,
+      "test_recipe": "26",
+      "train_size": 366,
+      "test_size": 17,
+      "accuracy": 0.6470588235294118,
+      "precision": 0.6666666666666666,
+      "recall": 0.8,
+      "f1": 0.7272727272727273,
+      "auc": 0.7571428571428571
+    },
+    {
+      "fold": 15,
+      "test_recipe": "27",
+      "train_size": 368,
+      "test_size": 15,
+      "accuracy": 0.3333333333333333,
+      "precision": 0.4,
+      "recall": 0.2222222222222222,
+      "f1": 0.2857142857142857,
+      "auc": 0.5
+    },
+    {
+      "fold": 16,
+      "test_recipe": "28",
+      "train_size": 365,
+      "test_size": 18,
+      "accuracy": 0.6666666666666666,
+      "precision": 0.7272727272727273,
+      "recall": 0.7272727272727273,
+      "f1": 0.7272727272727273,
+      "auc": 0.7012987012987013
+    },
+    {
+      "fold": 17,
+      "test_recipe": "29",
+      "train_size": 365,
+      "test_size": 18,
+      "accuracy": 0.6666666666666666,
+      "precision": 0.75,
+      "recall": 0.75,
+      "f1": 0.75,
+      "auc": 0.7083333333333334
+    },
+    {
+      "fold": 18,
+      "test_recipe": "3",
+      "train_size": 370,
+      "test_size": 13,
+      "accuracy": 0.46153846153846156,
+      "precision": 0.6666666666666666,
+      "recall": 0.25,
+      "f1": 0.36363636363636365,
+      "auc": 0.625
+    },
+    {
+      "fold": 19,
+      "test_recipe": "4",
+      "train_size": 366,
+      "test_size": 17,
+      "accuracy": 0.6470588235294118,
+      "precision": 0.5384615384615384,
+      "recall": 1.0,
+      "f1": 0.7,
+      "auc": 0.9285714285714286
+    },
+    {
+      "fold": 20,
+      "test_recipe": "5",
+      "train_size": 368,
+      "test_size": 15,
+      "accuracy": 0.4,
+      "precision": 0.42857142857142855,
+      "recall": 0.8571428571428571,
+      "f1": 0.5714285714285714,
+      "auc": 0.6428571428571428
+    },
+    {
+      "fold": 21,
+      "test_recipe": "7",
+      "train_size": 367,
+      "test_size": 16,
+      "accuracy": 0.5625,
+      "precision": 0.6363636363636364,
+      "recall": 0.7,
+      "f1": 0.6666666666666666,
+      "auc": 0.4666666666666667
+    },
+    {
+      "fold": 22,
+      "test_recipe": "8",
+      "train_size": 367,
+      "test_size": 16,
+      "accuracy": 0.625,
+      "precision": 0.6428571428571429,
+      "recall": 0.9,
+      "f1": 0.75,
+      "auc": 0.7666666666666666
+    },
+    {
+      "fold": 23,
+      "test_recipe": "9",
+      "train_size": 369,
+      "test_size": 14,
+      "accuracy": 0.5714285714285714,
+      "precision": 0.42857142857142855,
+      "recall": 0.6,
+      "f1": 0.5,
+      "auc": 0.7111111111111111
+    }
+  ],
+  "config": {
+    "num_epochs": 30,
+    "learning_rate": 0.0005,
+    "batch_size": 16,
+    "pos_weight": 2.0,
+    "hidden_dim": 256,
+    "feature_dim": 256
+  }
+}

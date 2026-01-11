@@ -11,6 +11,14 @@ pip install -r requirements.txt
 
 Then, download the pre-extracted features for 1s segments and put them in the `data/features` directory.
 
+## Project spec (PDF) → text
+
+To extract `AML-2025_Mistake_Detection_Project.pdf` into plain text for searching/notes, run from the repo root venv:
+
+```
+..\.\.venv\Scripts\python.exe aml-procedural-mistake-detection\extract_pdf_text.py
+```
+
 ## Step 1: Baselines reproduction
 Download the official best checkpoints from [here](https://utdallas.app.box.com/s/uz3s1alrzucz03sleify8kazhuc1ksl3) (`error_recognition_best` directory) and place them in the `checkpoints`. Then run the evaluation for the error recognition task.
 
@@ -37,3 +45,13 @@ This project builds on many repositories from the CaptainCook4D release. Please 
 **Error Recognition**: https://github.com/CaptainCook4D/error_recognition
 
 **Features Extraction**: https://github.com/CaptainCook4D/feature_extractors
+
+## Extension (run locally)
+
+The extension is implemented as notebooks, but you can run them locally (without Jupyter) via:
+
+```
+.\.venv-ext-cuda\Scripts\python.exe tools/run_extension_local.py --steps 1 2 3 4
+```
+
+See `docs/RUN_EXTENSION_LOCALLY.md` for details.

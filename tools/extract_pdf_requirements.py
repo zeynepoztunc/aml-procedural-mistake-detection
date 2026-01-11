@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import sys
 import re
 from pathlib import Path
 
-from pypdf import PdfReader
+try:
+    from pypdf import PdfReader
+except Exception:  # pragma: no cover
+    PdfReader = None
 
 try:
     from pdfminer.high_level import extract_text as pdfminer_extract_text
@@ -18,7 +22,16 @@ def normalize_ws(s: str) -> str:
     return s.strip()
 
 
+def _configure_stdout() -> None:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
+
 def main() -> None:
+    _configure_stdout()
+
     repo_root = Path(__file__).resolve().parents[1]
     pdf_path = repo_root / "AML-2025_Mistake_Detection_Project.pdf"
     if not pdf_path.exists():
@@ -32,14 +45,19 @@ def main() -> None:
     pages_text: list[str] = []
     num_pages: int | None = None
     try:
-        reader = PdfReader(str(pdf_path), strict=False)
-        num_pages = len(reader.pages)
-        for i, page in enumerate(reader.pages):
+        if PdfReader is None:
+            raise ImportError("pypdf is not installed")
+        reader = PdfReader(str(pdf_path), strict=False)  # type: ignore[misc]
+        num_pages = len(reader.pages)  # type: ignore[union-attr]
+        for i, page in enumerate(reader.pages):  # type: ignore[union-attr]
             text = page.extract_text() or ""
             pages_text.append(f"\n\n--- PAGE {i+1} ---\n\n{text}")
     except Exception as e:
         if pdfminer_extract_text is None:
-            raise
+            raise SystemExit(
+                "PDF text extraction requires either `pypdf` or `pdfminer.six`.\n"
+                "Tip: run this script with the repo root venv: `..\\.venv\\Scripts\\python.exe`"
+            ) from e
         extracted = pdfminer_extract_text(str(pdf_path)) or ""
         pages_text = [extracted]
         print(f"[warn] pypdf extraction failed ({type(e).__name__}: {e}); used pdfminer.six fallback")

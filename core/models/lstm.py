@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from core.models.blocks import fetch_input_dim
 
+
 class LSTM(nn.Module):
     def __init__(self, config):
         super(LSTM, self).__init__()
@@ -44,7 +45,5 @@ class LSTM(nn.Module):
         if is_unbatched:
             # Remove batch dim: (1, Seq, 1) -> (Seq, 1)
             logits = logits.squeeze(0)
-            
-        return logits
         
         return logits

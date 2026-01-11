@@ -1,52 +1,48 @@
 # Project Evaluation & Gap Analysis
 
-**Date:** January 10, 2026
+**Date:** January 10, 2026 (updated Jan 11, 2026)  
 **Subject:** AML-2025 Mistake Detection Project Implementation Review
+
+This report tracks what is implemented in this repo versus the requirements in `AML-2025_Mistake_Detection_Project.pdf`.
 
 ## 1. Requirement Compliance Summary
 
-Based on the `AML-2025_Mistake_Detection_Project.pdf` and codebase analysis.
-
-| Requirement | Status | Detailed Observation |
+| Requirement | Status | Evidence / Notes |
 | :--- | :--- | :--- |
-| **Env Setup** | ✅ | Virtual env active, requirements listed. |
-| **Baseline V1 (MLP)** | ✅ | Implemented in `core.models.blocks.MLP` + `base.py`. |
-| **Baseline V2 (Transformer)** | ✅ | Implemented in `core.models.er_former.ErFormer` + `base.py`. |
-| **New Baseline (LSTM)** | ✅ | Implemented in `core.models.lstm` (referenced in `base.py`). |
-| **Feature Support (EgoVLP)** | ✅ | `EGOVLP` constant and dataloader support present. |
-| **Standard Metrics** | ✅ | Acc, Prec, Recall, F1, AUC computed in `test_er_model`. |
-| **Error Type Analysis** | ❌ **MISSING** | Code loads error types but aggregates metrics globally. No per-category F1/AUC output. |
-| **Extension: Localization** | ✅ | Notebooks for Step 1 (ActionFormer) present. |
-| **Extension: Verification** | ✅ | Notebooks for Step 2 (Verification baseline) present. |
-| **Extension: Graph Match** | ✅ | Notebooks for Step 3 (Graph Matching) present. |
-| **Extension: GNN Classif.** | ✅ | Notebooks for Step 4 (GNN) present. |
+| Env setup | Implemented | `requirements.txt`, local venv instructions in `README.md` |
+| Step 2 baseline V1 (MLP) | Implemented | `core/models/blocks.py` + `base.py` |
+| Step 2 baseline V2 (Transformer) | Implemented | `core/models/er_former.py` + `base.py` |
+| New baseline (example: LSTM) | Implemented | `core/models/lstm.py` (+ notebooks) |
+| Standard metrics (Acc/Prec/Recall/F1/AUC) | Implemented | `base.py:test_er_model` |
+| Error-type analysis | Implemented (separate workflow) | `error_type_analysis.ipynb`, `error_type_analysis.md`, `docs/ERROR_TYPE_DISTRIBUTION_2026-01-10.md` |
+| New backbone (EgoVLP or PerceptionEncoder) | Partially implemented | EgoVLP supported in code + features present; PerceptionEncoder not integrated |
+| Extension Step 1 (localization/step embeddings) | Implemented | `extension_step1_localization.ipynb` writes `extension_data/step_embeddings_gt.pkl` |
+| Extension Step 2 (task-verification baselines) | Implemented | `extension_step2_verification_baseline.ipynb` writes `extension_data/task_verification_results.json` |
+| Extension Step 3 (graph encoding + matching) | Implemented | `extension_step3_task_graph_matching.ipynb` writes `extension_data/realized_task_graphs.pkl` |
+| Extension Step 4 (GNN classification) | Implemented | `extension_step4_gnn_classification.ipynb` writes `extension_data/gnn_results.json` |
+| Run extension locally | Implemented | `docs/RUN_EXTENSION_LOCALLY.md` + `tools/run_extension_local.py` |
 
-## 2. Identified Gaps
+## 2. Remaining Gaps / Notes
 
-### Critical Gap: Missing Per-Error-Type Analysis
-**Requirement:** "You should analyze the performance of the model on different error types." (PDF Page 4, Item 2a).
+### A. SlowFast features (PDF Step 2.1)
 
-**Current State:**
-- `test_er_model` in `base.py` calculates metrics on flattened arrays `all_targets` vs `all_outputs`.
-- `CaptainCookStepDataset` correctly loads error categories (Temperature, Timing, etc.) into `_error_step_dict` and `recording_step_dictionary`.
-- However, these specific error labels are NOT passed through the `DataLoader` or used in `test_er_model` to stratify the results.
+The PDF mentions Omnivore and SlowFast. This repo supports SlowFast in code, but local data currently includes Omnivore; SlowFast features are not present under `data/video/slowfast/`.
 
-### Minor Observations
-- **PDF Extraction:** Failed initially with `pypdf` due to font bbox issues; fixed with `pdfminer.six` fallback.
-- **Empty Steps:** `test_er_model` has a fallback for empty steps (`if len(step_output) == 0`) but this might mask data loading issues if frequent.
+### B. PerceptionEncoder backbone (PDF Step 2.3)
 
-## 3. Suggested Fixes (Plan)
+PerceptionEncoder is mentioned in the PDF, but there is no PerceptionEncoder-specific integration (feature extraction + dataloader path + input dimension) in the codebase.
 
-Do NOT modify code yet (per user instruction), but the following changes would be required:
+### C. Error-type breakdown inside the main ER evaluation (interpretation of PDF Step 2.2a)
 
-1.  **Modify `collate_fn` / `CaptainCookStepDataset`**: Ensure `error_category_labels` are returned as part of the batch meta-data (or a separate tensor) during testing.
-2.  **Update `test_er_model` in `base.py`**:
-    -   Accept error category labels from the dataloader.
-    -   Inside the metric calculation block, iterate through unique error categories (Temperature, Timing, Preparation, etc.).
-    -   Filter `all_targets` and `all_outputs` by category and compute Precision/Recall/F1/AUC for each subset.
-    -   Print/Log these per-category metrics alongside the global ones.
-3.  **Update `save_results_to_csv`**: Add columns to the results CSV to persist these per-category metrics.
+You do have error-type analysis implemented, but it is not wired into the main `test_er_model` evaluation output for a single checkpoint (the ER evaluator still reports global metrics only).
 
-## 4. Next Steps
-- User should authorize the implementation of the per-error-type analysis logic.
-- Verify the extension notebooks run end-to-end (currently only static analysis was performed).
+### D. Extension Step 3 text encoder alignment (PDF Substep 3)
+
+The PDF suggests encoding task-graph text using an aligned EgoVLP/PE textual encoder. The current Step 3 notebook uses a HuggingFace text model (`distilbert-base-uncased`) and projects to the visual feature dimension. This works, but it is not the same as using the aligned EgoVLP/PE text encoder.
+
+## 3. Next Steps
+
+- Optional: add per-error-type metric breakdown into `base.py:test_er_model` (in addition to the existing analysis notebooks).
+- Optional: integrate PerceptionEncoder (if you want full spec coverage beyond EgoVLP).
+- Write the final report (8 pages, CVPR template) focusing on the extension, as required by the PDF.
+
