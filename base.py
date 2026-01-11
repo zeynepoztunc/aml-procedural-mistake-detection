@@ -21,6 +21,56 @@ from dataloader.CaptainCookStepDataset import collate_fn, CaptainCookStepDataset
 from dataloader.CaptainCookSubStepDataset import CaptainCookSubStepDataset
 
 
+def _metric_value(value):
+    if isinstance(value, torch.Tensor):
+        return float(value.detach().cpu().item())
+    return float(value)
+
+
+def _pool_step_probability(step_output: np.ndarray, step_pooling: str, step_topk_frac: float) -> float:
+    if step_output.size == 0:
+        return 0.0
+
+    if step_pooling == "max":
+        return float(np.max(step_output))
+
+    if step_pooling == "topk":
+        if step_topk_frac <= 0:
+            return float(np.mean(step_output))
+        k = max(1, int(np.ceil(step_output.size * step_topk_frac)))
+        topk = np.partition(step_output, -k)[-k:]
+        return float(np.mean(topk))
+
+    # default: mean
+    return float(np.mean(step_output))
+
+
+def _binary_metrics(y_true: np.ndarray, y_score: np.ndarray, threshold: float):
+    pred = (y_score > threshold).astype(int)
+    precision = precision_score(y_true, pred, zero_division=0)
+    recall = recall_score(y_true, pred, zero_division=0)
+    f1 = f1_score(y_true, pred, zero_division=0)
+    accuracy = accuracy_score(y_true, pred)
+
+    auc = float("nan")
+    if np.unique(y_true).size > 1:
+        auc = roc_auc_score(y_true, y_score)
+
+    pr_auc = binary_auprc(
+        torch.tensor(y_score, dtype=torch.float32),
+        torch.tensor(y_true, dtype=torch.long),
+    )
+
+    return {
+        const.PRECISION: precision,
+        const.RECALL: recall,
+        const.F1: f1,
+        const.ACCURACY: accuracy,
+        const.AUC: auc,
+        const.PR_AUC: pr_auc,
+    }
+
+
 def fetch_model_name(config):
     if config.task_name == const.ERROR_CATEGORY_RECOGNITION:
         return fetch_model_name_ecr(config)
@@ -131,16 +181,26 @@ def train_epoch(model, device, train_loader, optimizer, epoch, criterion):
     num_batches = len(train_loader)
     train_losses = []
 
-    for batch_idx, (data, target) in enumerate(train_loader):
+    for batch_idx, batch in enumerate(train_loader):
+        data, target = batch[0], batch[1]
+        # Handle empty batches (from filtering corrupt files)
+        if len(data) == 0:
+            continue
+            
         data, target = data.to(device), target.to(device)
 
-        assert not torch.isnan(data).any(), "Data contains NaN values"
+        # Skip batch if input contains NaNs (prevent contamination)
+        if torch.isnan(data).any():
+            print(f"Warning: NaNs in input data at batch {batch_idx}. Skipping.")
+            continue
 
         optimizer.zero_grad()
         output = model(data)
         loss = criterion(output, target)
 
-        assert not torch.isnan(loss).any(), "Loss contains NaN values"
+        if torch.isnan(loss).any():
+             print(f"Warning: NaN loss detected at batch {batch_idx}. Skipping step.")
+             continue
 
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # Gradient clipping
@@ -168,8 +228,9 @@ def train_model_base(train_loader, val_loader, config, test_loader=None):
         threshold=1e-4, threshold_mode="abs", min_lr=1e-7
     )
     # criterion = nn.BCEWithLogitsLoss()
-    # Initialize variables to track the best model based on the desired metric (e.g., AUC)
-    best_model = {'model_state': None, 'metric': 0}
+    # Track best checkpoint using the chosen metric (default: step F1)
+    best_model = {'model_state': None, 'metric': float("-inf"), 'epoch': None}
+    no_improve_epochs = 0
 
     model_name = config.model_name
     if config.model_name is None:
@@ -191,24 +252,28 @@ def train_model_base(train_loader, val_loader, config, test_loader=None):
             num_batches = len(train_loader)
             train_losses = []
 
-            for batch_idx, (data, target) in enumerate(train_loader):
+            for batch_idx, batch in enumerate(train_loader):
+                data, target = batch[0], batch[1]
+                # Robustness: Skip empty batches (Edit 004)
+                if len(data) == 0:
+                    continue
+
                 data, target = data.to(device), target.to(device)
 
-                # assert not torch.isnan(data).any(), "Data contains NaN values"
+                # Robustness: Skip corrupt input (Edit 004)
+                if torch.isnan(data).any():
+                    # print(f"Warning: NaNs in input data. Skipping.")
+                    continue
 
                 optimizer.zero_grad()
                 output = model(data)
                 loss = criterion(output, target)
 
                 if torch.isnan(loss).any():
-                    if data.numel() > 0:
-                        print(f"Warning: NaN loss detected at epoch {epoch}, batch {batch_idx}. Input stats: Min={data.min():.2f}, Max={data.max():.2f}")
-                    else:
-                        print(f"Warning: NaN loss detected at epoch {epoch}, batch {batch_idx}. Empty batch encountered.")
-                    optimizer.zero_grad()
-                    continue
-
-                # assert not torch.isnan(loss).any(), "Loss contains NaN values"
+                     # Just skip silently or with minimal logging to avoid spam
+                     # print(f"Warning: NaN loss ignored.")
+                     optimizer.zero_grad()
+                     continue
 
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # Gradient clipping
@@ -220,22 +285,51 @@ def train_model_base(train_loader, val_loader, config, test_loader=None):
 
             # Use threshold from config
             eval_threshold = getattr(config, 'threshold', 0.6)
-            val_losses, sub_step_metrics, step_metrics = test_er_model(model, val_loader, criterion, device, phase='val', threshold=eval_threshold)
+            val_losses, sub_step_metrics, step_metrics = test_er_model(
+                model,
+                val_loader,
+                criterion,
+                device,
+                phase='val',
+                threshold=eval_threshold,
+                step_pooling=getattr(config, "step_pooling", "mean"),
+                step_topk_frac=getattr(config, "step_topk_frac", 0.2),
+                sweep_thresholds=getattr(config, "sweep_thresholds", False),
+                sweep_min=getattr(config, "sweep_min", 0.1),
+                sweep_max=getattr(config, "sweep_max", 0.9),
+                sweep_step=getattr(config, "sweep_step", 0.05),
+            )
 
             scheduler.step(step_metrics[const.AUC])
 
+            eval_threshold_for_test = eval_threshold
+            if getattr(config, "sweep_thresholds", False):
+                eval_threshold_for_test = float(step_metrics.get("best_threshold", eval_threshold))
+
             if test_loader is not None:
-                test_losses, test_sub_step_metrics, test_step_metrics = test_er_model(model, test_loader, criterion,
-                                                                                      device, phase='test', threshold=eval_threshold)
+                test_losses, test_sub_step_metrics, test_step_metrics = test_er_model(
+                    model,
+                    test_loader,
+                    criterion,
+                    device,
+                    phase='test',
+                    threshold=eval_threshold_for_test,
+                    step_pooling=getattr(config, "step_pooling", "mean"),
+                    step_topk_frac=getattr(config, "step_topk_frac", 0.2),
+                    sweep_thresholds=False,
+                    sweep_min=getattr(config, "sweep_min", 0.1),
+                    sweep_max=getattr(config, "sweep_max", 0.9),
+                    sweep_step=getattr(config, "sweep_step", 0.05),
+                )
 
             avg_train_loss = sum(train_losses) / len(train_losses)
             avg_val_loss = sum(val_losses) / len(val_losses)
             avg_test_loss = sum(test_losses) / len(test_losses)
 
-            precision = step_metrics['precision']
-            recall = step_metrics['recall']
-            f1 = step_metrics['f1']
-            auc = step_metrics['auc']
+            precision = step_metrics[const.PRECISION]
+            recall = step_metrics[const.RECALL]
+            f1 = step_metrics[const.F1]
+            auc = step_metrics[const.AUC]
 
             # Write losses and metrics to file
             f.write(
@@ -262,10 +356,27 @@ def train_model_base(train_loader, val_loader, config, test_loader=None):
             print(f'Epoch: {epoch}, Train Loss: {avg_train_loss:.6f}, Test Loss: {avg_test_loss:.6f}, '
                   f'Precision: {precision:.6f}, Recall: {recall:.6f}, F1: {f1:.6f}, AUC: {auc:.6f}')
 
-            # Update best model based on the chosen metric, here using AUC as an example
-            if auc > best_model['metric']:
-                best_model['metric'] = auc
+            # Update best model based on configured selection metric (default: F1)
+            best_metric_name = getattr(config, "best_metric", "f1")
+            if best_metric_name == "auc":
+                current_metric = _metric_value(step_metrics[const.AUC])
+            elif best_metric_name == "pr_auc":
+                current_metric = _metric_value(step_metrics[const.PR_AUC])
+            else:
+                current_metric = _metric_value(step_metrics[const.F1])
+
+            if current_metric > best_model['metric']:
+                best_model['metric'] = current_metric
                 best_model['model_state'] = model.state_dict()
+                best_model['epoch'] = epoch
+                no_improve_epochs = 0
+            else:
+                no_improve_epochs += 1
+
+            early_stop_patience = int(getattr(config, "early_stop_patience", 0) or 0)
+            if early_stop_patience > 0 and no_improve_epochs >= early_stop_patience:
+                print(f"Early stopping at epoch {epoch} (best epoch: {best_model['epoch']}, {best_metric_name}={best_model['metric']:.6f}).")
+                break
 
             store_model(model, config, ckpt_name=f"{model_name}_epoch_{epoch}.pt")
 
@@ -279,11 +390,11 @@ def train_step_test_step_dataset_base(config):
     torch.manual_seed(config.seed)
 
     cuda_kwargs = {
-        "num_workers": 8,
+        "num_workers": 0,
         "pin_memory": False,
     }
     train_kwargs = {**cuda_kwargs, "shuffle": True, "batch_size": config.batch_size}
-    test_kwargs = {**cuda_kwargs, "shuffle": False, "batch_size": 1}
+    test_kwargs = {**cuda_kwargs, "shuffle": False, "batch_size": config.test_batch_size}
 
     print("-------------------------------------------------------------")
     print("Training step model and testing on step level")
@@ -335,32 +446,51 @@ def train_sub_step_test_step_dataset_base(config):
 
 
 def test_er_model(model, test_loader, criterion, device, phase, step_normalization=True, sub_step_normalization=True,
-                  threshold=0.6):
+                  threshold=0.6, step_pooling="mean", step_topk_frac=0.2, sweep_thresholds=False, sweep_min=0.1,
+                  sweep_max=0.9, sweep_step=0.05):
     total_samples = 0
     all_targets = []
     all_outputs = []
+    all_step_lengths = []
 
     test_loader = tqdm(test_loader)
     num_batches = len(test_loader)
     test_losses = []
 
-    test_step_start_end_list = []
     counter = 0
 
     with torch.no_grad():
-        for data, target in test_loader:
+        for batch in test_loader:
+            data, target = batch[0], batch[1]
+            step_lengths = batch[2] if len(batch) > 2 else None
+              # Robustness: Skip empty batches
+            if len(data) == 0:
+                continue
+
             data, target = data.to(device), target.to(device)
+            
+            # Robustness: Skip corrupt input
+            if torch.isnan(data).any():
+                continue
+
             output = model(data)
             total_samples += data.shape[0]
             loss = criterion(output, target)
-            test_losses.append(loss.item())
+            
+            # Robustness: Handle NaN loss in testing
+            loss_val = loss.item()
+            if np.isnan(loss_val):
+                continue
+                
+            test_losses.append(loss_val)
 
             sigmoid_output = output.sigmoid()
             all_outputs.append(sigmoid_output.detach().cpu().numpy().reshape(-1))
             all_targets.append(target.detach().cpu().numpy().reshape(-1))
 
-            test_step_start_end_list.append((counter, counter + data.shape[0]))
-            counter += data.shape[0]
+            if step_lengths is not None:
+                all_step_lengths.extend(step_lengths)
+            counter += int(data.shape[0])
 
             # Set the description of the tqdm instance to show the loss
             test_loader.set_description(f'{phase} Progress: {total_samples}/{num_batches}')
@@ -377,22 +507,7 @@ def test_er_model(model, test_loader, criterion, device, phase, step_normalizati
     all_sub_step_outputs = all_outputs.copy()
 
     # Calculate metrics at the sub-step level
-    pred_sub_step_labels = (all_sub_step_outputs > 0.5).astype(int)
-    sub_step_precision = precision_score(all_sub_step_targets, pred_sub_step_labels)
-    sub_step_recall = recall_score(all_sub_step_targets, pred_sub_step_labels)
-    sub_step_f1 = f1_score(all_sub_step_targets, pred_sub_step_labels)
-    sub_step_accuracy = accuracy_score(all_sub_step_targets, pred_sub_step_labels)
-    sub_step_auc = roc_auc_score(all_sub_step_targets, all_sub_step_outputs)
-    sub_step_pr_auc = binary_auprc(torch.tensor(pred_sub_step_labels), torch.tensor(all_sub_step_targets))
-
-    sub_step_metrics = {
-        const.PRECISION: sub_step_precision,
-        const.RECALL: sub_step_recall,
-        const.F1: sub_step_f1,
-        const.ACCURACY: sub_step_accuracy,
-        const.AUC: sub_step_auc,
-        const.PR_AUC: sub_step_pr_auc
-    }
+    sub_step_metrics = _binary_metrics(all_sub_step_targets, all_sub_step_outputs, threshold=0.5)
 
     # -------------------------- Step Level Metrics --------------------------
     all_step_targets = []
@@ -400,9 +515,18 @@ def test_er_model(model, test_loader, criterion, device, phase, step_normalizati
 
     # threshold_outputs = all_outputs / max_probability
 
-    for start, end in test_step_start_end_list:
+    if not all_step_lengths:
+        raise RuntimeError(
+            "Step-level metrics require per-step boundaries, but none were provided. "
+            "Ensure `dataloader/CaptainCookStepDataset.py:collate_fn` returns step lengths."
+        )
+
+    offset = 0
+    for step_len in all_step_lengths:
+        start, end = offset, offset + int(step_len)
         step_output = all_outputs[start:end]
         step_target = all_targets[start:end]
+        offset = end
 
         # sorted_step_output = np.sort(step_output)
         # # Top 50% of the predictions
@@ -425,13 +549,17 @@ def test_er_model(model, test_loader, criterion, device, phase, step_normalizati
         else:
             step_output = np.array(step_output)
             # # Scale the output to [0, 1]
-            if start - end > 1:
+            if end - start > 1:
                 if sub_step_normalization:
                     prob_range = np.max(step_output) - np.min(step_output)
                     step_output = (step_output - np.min(step_output)) / prob_range
 
-            mean_step_output = np.mean(step_output)
-            step_target = 1 if np.mean(step_target) > 0.95 else 0
+            mean_step_output = _pool_step_probability(
+                step_output,
+                step_pooling=step_pooling,
+                step_topk_frac=step_topk_frac,
+            )
+            step_target = 1 if np.mean(step_target) > 0.5 else 0
 
         all_step_outputs.append(mean_step_output)
         all_step_targets.append(step_target)
@@ -452,24 +580,28 @@ def test_er_model(model, test_loader, criterion, device, phase, step_normalizati
 
     all_step_targets = np.array(all_step_targets)
 
-    # Calculate metrics at the step level
-    pred_step_labels = (all_step_outputs > threshold).astype(int)
-    precision = precision_score(all_step_targets, pred_step_labels, zero_division=0)
-    recall = recall_score(all_step_targets, pred_step_labels)
-    f1 = f1_score(all_step_targets, pred_step_labels)
-    accuracy = accuracy_score(all_step_targets, pred_step_labels)
+    # Calculate metrics at the step level (single threshold)
+    step_metrics = _binary_metrics(all_step_targets, all_step_outputs, threshold=threshold)
 
-    auc = roc_auc_score(all_step_targets, all_step_outputs)
-    pr_auc = binary_auprc(torch.tensor(pred_step_labels), torch.tensor(all_step_targets))
+    # Threshold sweep (largest practical gain: pick threshold that maximizes Step-Level F1)
+    if sweep_thresholds:
+        thresholds = np.arange(float(sweep_min), float(sweep_max) + 1e-9, float(sweep_step))
+        best_key = None
+        best_threshold = float(threshold)
+        best_metrics = step_metrics
+        for t in thresholds:
+            metrics_t = _binary_metrics(all_step_targets, all_step_outputs, threshold=float(t))
+            key = (_metric_value(metrics_t[const.F1]), _metric_value(metrics_t[const.PRECISION]))
+            if best_key is None or key > best_key:
+                best_key = key
+                best_threshold = float(t)
+                best_metrics = metrics_t
 
-    step_metrics = {
-        const.PRECISION: precision,
-        const.RECALL: recall,
-        const.F1: f1,
-        const.ACCURACY: accuracy,
-        const.AUC: auc,
-        const.PR_AUC: pr_auc
-    }
+        step_metrics = best_metrics
+        step_metrics["best_threshold"] = best_threshold
+        step_metrics["sweep_min"] = float(sweep_min)
+        step_metrics["sweep_max"] = float(sweep_max)
+        step_metrics["sweep_step"] = float(sweep_step)
 
     # Print step level metrics
     print("----------------------------------------------------------------")

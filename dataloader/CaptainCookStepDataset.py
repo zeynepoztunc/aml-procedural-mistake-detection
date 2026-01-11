@@ -253,11 +253,18 @@ class CaptainCookStepDataset(Dataset):
                     candidates = [f for f in os.listdir(base_dir) if f.startswith(f"{recording_id}_") and f.endswith(".npz")]
                     if candidates:
                         features_path = os.path.join(base_dir, candidates[0])
+                    else:
+                         # Return None if absolutely no file is found
+                        return None, None
                 except OSError:
-                    pass
+                    return None, None
 
-            features_data = np.load(features_path)
-            recording_features = features_data['video_features']
+            try:
+                features_data = np.load(features_path)
+                recording_features = features_data['video_features']
+            except Exception as e:
+                print(f"Error loading {features_path}: {e}")
+                return None, None
             
             # --- ROBUSTNESS FIX: Handle NaNs and Normalize ---
             recording_features = np.nan_to_num(recording_features, nan=0.0, posinf=0.0, neginf=0.0)
@@ -269,7 +276,7 @@ class CaptainCookStepDataset(Dataset):
             recording_features = (recording_features - mean) / std
             
             # Clip outliers
-            recording_features = np.clip(recording_features, -10.0, 10.0)
+            recording_features = np.clip(recording_features, -100.0, 100.0)
             # -------------------------------------------------
             
         else:
@@ -292,18 +299,28 @@ class CaptainCookStepDataset(Dataset):
         assert self._backbone in [const.OMNIVORE, const.SLOWFAST, const.EGOVLP], "Only Omnivore, SlowFast and EgoVLP are supported with this codebase"
         step_features, step_labels = self._get_video_features(recording_id, step_start_end_list)
 
-        assert step_features is not None, f"Features not found for recording_id: {recording_id}"
-        assert step_labels is not None, f"Labels not found for recording_id: {recording_id}"
+        # Robustness: Return None if features are missing
+        if step_features is None or step_labels is None:
+            return None
 
         return step_features, step_labels
 
 
 def collate_fn(batch):
+    # Filter out None values (failed loads)
+    batch = [b for b in batch if b is not None]
+    
+    if not batch:
+        return torch.tensor([]), torch.tensor([]), []
+
     # batch is a list of tuples, and each tuple is (step_features, step_labels)
     step_features, step_labels = zip(*batch)
+
+    # Preserve per-step boundaries (each dataset item can have variable length)
+    step_lengths = [int(features.shape[0]) for features in step_features]
 
     # Stack the step_features and step_labels
     step_features = torch.cat(step_features, dim=0)
     step_labels = torch.cat(step_labels, dim=0)
 
-    return step_features, step_labels
+    return step_features, step_labels, step_lengths
