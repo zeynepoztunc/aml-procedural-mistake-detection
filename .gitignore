@@ -123,6 +123,7 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.venv-*/
 env/
 venv/
 ENV/
@@ -161,6 +162,9 @@ cython_debug/
 #.idea/
 
 .venv
+.venv-pyg/
+.venv-ext/
+.venv-ext-cuda/
 data
 checkpoints
 wandb
@@ -169,3 +173,8 @@ error_recognition_best
 
 results
 .vscode
+
+# Local extension outputs / runs
+extension_data/
+tools/_runs/
+tools/__pycache__/

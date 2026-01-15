@@ -37,3 +37,11 @@ This project builds on many repositories from the CaptainCook4D release. Please 
 **Error Recognition**: https://github.com/CaptainCook4D/error_recognition
 
 **Features Extraction**: https://github.com/CaptainCook4D/feature_extractors
+
+## Extension (Steps 1–4) – Run locally
+
+The extension pipeline (localization → verification → graph matching → GNN) is implemented in notebooks.
+
+- Local run guide: `docs/RUN_EXTENSION_LOCALLY.md`
+- Quick environment/data sanity check: `python tools/run_extension_local.py --check-only`
+- Non-interactive runner (executes notebooks via nbconvert): `python tools/run_extension_notebooks.py`
