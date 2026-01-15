@@ -6,7 +6,7 @@ This document records a full local execution of the **extension pipeline (Steps 
 
 Pipeline:
 
-1. **Step 1 (GT localization → step embeddings)**: `extension_step1_localization.ipynb`
+1. **Step 1 (GT localization → step embeddings)**: `extension_step1_pipeline.ipynb`
 2. **Step 2 (task verification baselines)**: `extension_step2_verification_baseline.ipynb`
 3. **Step 3 (task-graph encoding + matching)**: `extension_step3_task_graph_matching.ipynb`
 4. **Step 4 (GNN classification)**: `extension_step4_gnn_classification.ipynb`

@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 NOTEBOOKS = [
-    ("step1", "extension_step1_localization.ipynb"),
+    ("step1", "extension_step1_pipeline.ipynb"),
     ("step2", "extension_step2_verification_baseline.ipynb"),
     ("step3", "extension_step3_task_graph_matching.ipynb"),
     ("step4", "extension_step4_gnn_classification.ipynb"),

@@ -2,8 +2,8 @@
 
 This branch’s extension work (Step 1–4) is primarily implemented in notebooks:
 
-- `extension_step1_localization.ipynb` (GT step boundaries → step embeddings)
-- `extension_step1_v2_actionformer.ipynb` (ActionFormer-style boundaries → step embeddings)
+- `extension_step1_pipeline.ipynb` (GT step boundaries → step embeddings)
+- `extension_step1_actionformer.ipynb` (ActionFormer-based step localization experiments)
 - `extension_step2_verification_baseline.ipynb`
 - `extension_step3_task_graph_matching.ipynb`
 - `extension_step4_gnn_classification.ipynb`
@@ -61,14 +61,14 @@ The notebooks write outputs to:
 
 ### A) Ground-truth boundaries (simpler baseline)
 
-1. Run `extension_step1_localization.ipynb` (produces `extension_data/step_embeddings_gt.pkl`)
+1. Run `extension_step1_pipeline.ipynb` (produces `extension_data/step_embeddings_gt.pkl`)
 2. Run `extension_step2_verification_baseline.ipynb`
 3. Run `extension_step3_task_graph_matching.ipynb` (produces `extension_data/realized_task_graphs.pkl`)
 4. Run `extension_step4_gnn_classification.ipynb`
 
 ### B) ActionFormer-style boundaries (automatic segmentation)
 
-1. Run `extension_step1_v2_actionformer.ipynb` (produces `data/actionformer_outputs/actionformer_predictions.json` and `data/step_features_actionformer/step_features.pkl`)
+1. Run `extension_step1_actionformer.ipynb` (produces ActionFormer-derived boundaries and step embeddings, depending on the method you select in the notebook)
 2. Ensure downstream notebooks point to the ActionFormer output (if they currently load `extension_data/step_embeddings_gt.pkl`, switch to the ActionFormer feature file you produced).
 
 ## 4) Common local issues
