@@ -51,13 +51,17 @@ class StepLocalizationDataset(Dataset):
         feature_dir: Path,
         max_len: int,
         feature_fps: float,
-        boundary_tolerance: int = 3,
+        boundary_window: int = 3,
+        boundary_label_mode: str = "hard",
+        boundary_sigma: float = 1.5,
     ) -> None:
         self.annotations = annotations
         self.feature_dir = feature_dir
         self.max_len = max_len
         self.feature_fps = feature_fps
-        self.boundary_tolerance = boundary_tolerance
+        self.boundary_window = int(boundary_window)
+        self.boundary_label_mode = str(boundary_label_mode)
+        self.boundary_sigma = float(boundary_sigma)
 
         valid: list[str] = []
         for rec_id in recording_ids:
@@ -81,11 +85,32 @@ class StepLocalizationDataset(Dataset):
         for step in steps:
             start_frame = int(float(step["start_time"]) * self.feature_fps)
             end_frame = int(float(step["end_time"]) * self.feature_fps)
-            for offset in range(-self.boundary_tolerance, self.boundary_tolerance + 1):
-                if 0 <= start_frame + offset < seq_len:
-                    boundary_labels[start_frame + offset] = 1.0
-                if 0 <= end_frame + offset < seq_len:
-                    boundary_labels[end_frame + offset] = 1.0
+            for center in (start_frame, end_frame):
+                if not (0 <= center < seq_len):
+                    continue
+
+                w = max(0, int(self.boundary_window))
+                if w == 0:
+                    boundary_labels[center] = 1.0
+                    continue
+
+                if self.boundary_label_mode == "gaussian":
+                    # Soft boundary targets: a Gaussian bump around the boundary frame.
+                    # This makes training less brittle when timestamps/features are noisy or low-FPS.
+                    sigma = max(1e-6, float(self.boundary_sigma))
+                    for offset in range(-w, w + 1):
+                        i = center + offset
+                        if 0 <= i < seq_len:
+                            val = float(np.exp(-0.5 * (float(offset) / sigma) ** 2))
+                            # Combine multiple boundaries by taking the max; keep labels in [0, 1].
+                            if val > float(boundary_labels[i]):
+                                boundary_labels[i] = val
+                else:
+                    # Hard labels: mark a small window around the boundary as positive.
+                    for offset in range(-w, w + 1):
+                        i = center + offset
+                        if 0 <= i < seq_len:
+                            boundary_labels[i] = 1.0
 
         if seq_len > self.max_len:
             features = features[: self.max_len]

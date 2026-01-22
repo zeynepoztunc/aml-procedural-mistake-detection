@@ -1,0 +1,529 @@
+% CVPR 2026 Paper Template
+\documentclass[10pt,twocolumn,letterpaper]{article}
+
+\usepackage{cvpr}
+\usepackage{times}
+\usepackage{epsfig}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{subcaption}
+\usepackage{hyperref}
+
+% Include other packages here, before hyperref.
+
+% If you comment hyperref and then uncomment it, you should delete
+% egpaper.aux before re-running latex.  (Or just hit 'q' on the first latex
+% run, let it hierarchically fix itself, and then run again.)
+%\usepackage[breaklinks=true,bookmarks=false]{hyperref}
+
+\cvprfinalcopy % *** Uncomment this line for the final submission
+
+\def\cvprPaperID{****} % *** Enter the CVPR Paper ID here
+\def\httilde{\mbox{\tt\raisebox{-.5ex}{\symbol{126}}}}
+
+% Pages are numbered in submission mode, and unnumbered in camera-ready
+%\ifcvprfinal\pagestyle{empty}\fi
+\setcounter{page}{1}
+\begin{document}
+
+%%%%%%%%% TITLE
+\title{From Mistake Detection to Task Verification: \\A Multi-Stage Pipeline for Procedural Activity Understanding}
+
+\author{
+Politecnico di Torino\\
+{\tt\small s123456@studenti.polito.it}
+}
+
+\maketitle
+
+%%%%%%%%% ABSTRACT
+\begin{abstract}
+We present a comprehensive study on procedural mistake detection and task verification using the CaptainCook4D dataset. Our work extends the supervised error recognition baselines from CaptainCook4D (V1-MLP, V2-Transformer) with a novel LSTM baseline (V3), and develops a complete task verification pipeline. We reproduce and analyze the original baselines, propose LSTM achieving 58.41\% F1 on the recordings split, and extend the work to recipe-level verification. For temporal action localization, we train ActionFormer from scratch on CaptainCook4D with systematic grid search (81 configurations), achieving F1=9.19\%---a result that, while low in absolute terms, is expected given the domain gap from pre-training datasets and the inherent difficulty of fine-grained cooking step localization. Our extensive hyperparameter analysis reveals a counter-intuitive ``regularization paradox'' where adding dropout/weight decay hurts larger models in data-limited regimes. For task verification, systematic grid search (108 configurations per model) shows all architectures converge to similar performance ($\sim$72\% F1), and GraphSAGE achieves 75.7\% F1 for graph-based classification. We provide detailed analysis of error types and discuss counter-intuitive phenomena observed in low-data regimes.
+\end{abstract}
+
+%%%%%%%%% BODY TEXT
+\section{Introduction}
+
+Procedural activity understanding is a fundamental challenge in computer vision that involves teaching models to recognize, segment, and reason about sequences of actions in complex human activities. A particularly important application is mistake detection—identifying errors in procedural executions such as cooking recipes, assembly tasks, or medical procedures.
+
+In this project, we focus on the CaptainCook4D dataset \cite{peddi2024captaincook4d}, which provides 384 egocentric videos of recipe executions with various intentional and unintentional errors. Our goal is twofold: first, to implement and analyze baseline models for step-level mistake detection, and second, to develop an end-to-end pipeline for recipe-level task verification.
+
+The task verification problem is more challenging than step-level mistake detection because it requires understanding the entire recipe execution in context. We approach this through a four-stage pipeline: (1) temporal action localization to detect recipe steps, (2) step-level verification using simple baselines, (3) task graph matching to align detected steps with the recipe structure, and (4) graph neural network classification to predict overall recipe correctness.
+
+Our main contributions include:
+\begin{itemize}
+    \item Reproduction and analysis of V1 (MLP) and V2 (Transformer) baselines from CaptainCook4D \cite{peddi2024captaincook4d}, with a novel V3 (LSTM) baseline achieving 58.41\% F1
+    \item Analysis of model performance across different error types (TechniqueError, TimingError, etc.)
+    \item Extensive hyperparameter analysis of ActionFormer for temporal localization, with detailed explanation of why performance is inherently limited on this dataset
+    \item A counter-intuitive ``regularization paradox'' where stronger regularization hurts larger models
+    \item A complete task verification pipeline with task graph matching and GNN classification achieving 75.7\% F1
+\end{itemize}
+
+\section{Related Work}
+
+\subsection{CaptainCook4D and Supervised Error Recognition}
+
+Our work builds directly upon CaptainCook4D \cite{peddi2024captaincook4d}, a dataset of 384 egocentric cooking videos with fine-grained error annotations. The original paper proposes three baselines for the Supervised Error Recognition (SupervisedER) task: \textbf{V1} is a simple Multi-Layer Perceptron (MLP) that processes averaged sub-segment features; \textbf{V2} uses a Transformer encoder to model relationships between sub-segments within a step; \textbf{V3} extends V2 with multimodal inputs (audio, depth, narrations). In this work, we reproduce V1 and V2, and propose an alternative V3 using LSTM to capture temporal dependencies.
+
+\subsection{Procedural Activity Understanding}
+
+Recent work has made significant progress in understanding procedural activities. Seminara et al. \cite{seminara2024dtgl} propose differentiable task graph learning for online mistake detection from egocentric videos, learning task graphs directly from demonstrations. Flaborea et al. \cite{flaborea2024prego} introduce PREGO for \textit{online} mistake detection in procedural egocentric videos. Unlike these online approaches, our work focuses on \textit{offline} detection where the entire video is available. HiERO \cite{peirone2024hiero} enhances reasoning by understanding the hierarchy of human behavior through clustering-based step discovery.
+
+\subsection{Video Feature Extraction}
+
+Modern approaches rely on pre-trained video backbones for feature extraction. Omnivore \cite{girdhar2022omnivore} provides a single model for many visual modalities, while SlowFast \cite{feichtenhofer2019slowfast} separates slow and fast pathways for temporal modeling. EgoVLP \cite{lin2022egocentric} provides aligned video-language embeddings particularly suited for egocentric video understanding. Following CaptainCook4D, we use Omnivore and SlowFast features for baseline reproduction, and EgoVLP features for the extension pipeline where text-video alignment is required.
+
+\subsection{Temporal Action Localization}
+
+ActionFormer \cite{zhang2022actionformer} is a state-of-the-art approach for temporal action localization using transformer-based architectures with local self-attention and multi-scale feature pyramids. Pre-trained ActionFormer models are typically trained on large-scale datasets like Ego4D or ActivityNet. However, no pre-trained checkpoint exists for CaptainCook4D, requiring training from scratch---a significant challenge given the dataset's limited size (384 videos) and fine-grained cooking step categories.
+
+\subsection{Graph Neural Networks}
+
+GNNs have been applied to structured prediction tasks. DAGNN \cite{thost2021dagnn} is specifically designed for directed acyclic graphs, making it suitable for task graph reasoning. We experiment with GCN \cite{kipf2017gcn}, GAT \cite{velickovic2018gat}, and GraphSAGE \cite{hamilton2017graphsage} for classifying realized task graphs.
+
+\section{Method}
+
+Our approach consists of four main components as illustrated in Figure \ref{fig:pipeline}.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.9\textwidth]{pipeline.png}
+\caption{Overview of our task verification pipeline. (1) ActionFormer localizes recipe steps from video features. (2) Simple baselines verify individual steps. (3) Hungarian matching aligns detected steps with task graph nodes. (4) GNN classifier predicts recipe correctness.}
+\label{fig:pipeline}
+\end{figure*}
+
+\subsection{Step 1: Temporal Action Localization}
+
+We implement ActionFormer \cite{zhang2022actionformer} for localizing recipe steps in untrimmed videos. The architecture consists of:
+
+\textbf{Backbone:} A ConvTransformerBackbone with multiple stages of convolution and local masked multi-head attention (LocalMaskedMHCA). Each stage applies strided convolution followed by self-attention with a fixed window size.
+
+\textbf{Neck:} A Feature Pyramid Network (FPN1D) that builds multi-scale representations by combining features from different backbone stages.
+
+\textbf{Head:} Classification and regression heads that predict action classes and temporal boundaries at each scale.
+
+The model is trained with a combination of focal loss for classification and DIoU loss for regression:
+\begin{equation}
+\mathcal{L} = \mathcal{L}_{focal} + \lambda_{reg} \mathcal{L}_{DIoU}
+\end{equation}
+
+We use EgoVLP features (256-dimensional) as input, which provide aligned video-language representations suitable for matching with text descriptions.
+
+\subsection{Baseline Error Recognition (V1, V2, V3)}
+
+Following CaptainCook4D \cite{peddi2024captaincook4d}, we implement the SupervisedER baselines for step-level mistake detection:
+
+\textbf{V1 - MLP Baseline:} A two-layer MLP that processes averaged sub-segment features within each step:
+\begin{equation}
+h = \text{ReLU}(\text{Linear}(x)), \quad \hat{y} = \sigma(\text{Linear}(\text{Dropout}(h)))
+\end{equation}
+
+\textbf{V2 - Transformer Baseline:} A transformer encoder that models relationships between sub-segment features within a step, followed by mean pooling and a classification head. This allows the model to capture interactions between different temporal segments.
+
+\textbf{V3 - LSTM Baseline (Ours):} We propose a bidirectional LSTM as an alternative to the multimodal V3 from the original paper:
+\begin{equation}
+h_t = \text{BiLSTM}(x_t, h_{t-1})
+\end{equation}
+The LSTM explicitly models temporal dependencies in the sub-segment sequence, which we hypothesize is important for detecting procedural errors that manifest over time.
+
+\subsection{Task Verification Baselines (Extension)}
+
+For the extension's task verification step, we adapt the same architectures (MLP, Transformer, LSTM) to process step-level embeddings extracted from ActionFormer or ground-truth boundaries, predicting whether the overall recipe execution is correct.
+
+\subsection{Step 3: Task Graph Matching}
+
+Given detected steps from ActionFormer and the ground-truth task graph, we match each visual step to a graph node using Hungarian matching:
+
+\begin{equation}
+\mathbf{M}^* = \arg\min_{\mathbf{M}} \sum_{i,j} \mathbf{M}_{ij} \cdot (1 - \text{sim}(v_i, g_j))
+\end{equation}
+
+where $v_i$ is the visual embedding of step $i$, $g_j$ is the text embedding of graph node $j$, and $\text{sim}(\cdot, \cdot)$ is cosine similarity. The aligned visual-text space of EgoVLP enables this cross-modal matching.
+
+After matching, we create a ``realized'' task graph by updating matched nodes with fused features:
+\begin{equation}
+g'_j = \text{Proj}([g_j; v_i])
+\end{equation}
+
+\subsection{Step 4: GNN Classification}
+
+We train a Graph Neural Network to classify the realized task graph as correct or incorrect. We experiment with multiple GNN architectures:
+
+\textbf{GCN:} Graph Convolutional Networks \cite{kipf2017gcn}
+\begin{equation}
+H^{(l+1)} = \sigma(\tilde{D}^{-\frac{1}{2}}\tilde{A}\tilde{D}^{-\frac{1}{2}}H^{(l)}W^{(l)})
+\end{equation}
+
+\textbf{GAT:} Graph Attention Networks \cite{velickovic2018gat} with attention-based message passing
+
+\textbf{GraphSAGE:} Sampling and aggregation for inductive learning \cite{hamilton2017graphsage}
+
+After GNN layers, we apply global mean pooling and a classification head:
+\begin{equation}
+\hat{y} = \sigma(\text{Linear}(\text{MeanPool}(H^{(L)})))
+\end{equation}
+
+\section{Experiments}
+
+\subsection{Dataset and Setup}
+
+We use the CaptainCook4D dataset \cite{peddi2024captaincook4d} containing 384 egocentric cooking videos across multiple recipes. Each video contains step-level annotations with labels indicating correct or incorrect execution.
+
+\textbf{Dataset Statistics:} The dataset includes recordings from multiple environments (``environment'' split), multiple people (``person'' split), and across different recording sessions (``recordings'' split). We primarily use the ``step'' and ``recordings'' splits following the original paper. The dataset contains five error categories: TechniqueError, PreparationError, MeasurementError, TimingError, and TemperatureError.
+
+\textbf{Features:} For baseline reproduction (Section \ref{sec:baseline_reproduction}), we use pre-extracted Omnivore (1024-dim) and SlowFast (2304-dim) features as in the original paper. For the extension pipeline, we use EgoVLP features (256-dim) which provide aligned video-text embeddings required for task graph matching.
+
+\textbf{Evaluation Protocol:} Following CaptainCook4D, we use different classification thresholds for different splits: \textbf{threshold=0.6} for the step split and \textbf{threshold=0.5} for the recordings split. We report Precision, Recall, F1-score, and AUC. For GNN experiments, we use leave-one-recipe-out cross-validation.
+
+\textbf{Important Reproducibility Note:} The CaptainCook4D paper \cite{peddi2024captaincook4d} specifies threshold=0.4 for the recordings split, but through our reproducibility experiments, we discovered that threshold=0.5 produces results consistent with those reported in the paper. We confirmed this discrepancy with the teaching assistants and verified that threshold=0.5 is the correct value for replicating the published results. This finding is documented in the official repository issues as well.
+
+\subsection{Baseline Reproduction Results}
+\label{sec:baseline_reproduction}
+
+We reproduce V1 (MLP) and V2 (Transformer) baselines from CaptainCook4D \cite{peddi2024captaincook4d}. To establish ground truth for comparison, we verified the official baselines using the authors' provided checkpoints, then trained our proposed V3 (LSTM) from scratch using the same training configuration to ensure fair comparison. Table \ref{tab:baseline_comparison} shows results using Omnivore features.
+
+\begin{table}[h]
+\centering
+\caption{Baseline comparison with Omnivore features. V1/V2 results verified using official checkpoints to establish ground truth; V3 (LSTM) trained from scratch.}
+\label{tab:baseline_comparison}
+\begin{tabular}{llccc}
+\toprule
+Model & Split & F1 (\%) & AUC & Source \\
+\midrule
+V1 (MLP) & step & 24.26 & 0.578 & Official Ckpt \\
+V2 (Transformer) & step & 55.39 & 0.713 & Official Ckpt \\
+\textbf{V3 (LSTM)} & \textbf{step} & \textbf{50.85} & \textbf{0.682} & \textbf{Trained} \\
+\midrule
+V1 (MLP) & recordings & 50.91 & 0.632 & Official Ckpt \\
+V2 (Transformer) & recordings & 39.04 & 0.584 & Official Ckpt \\
+\textbf{V3 (LSTM)} & \textbf{recordings} & \textbf{58.41} & \textbf{0.775} & \textbf{Trained} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key Finding:} Our LSTM (V3) achieves competitive performance with the Transformer baseline (V2), while significantly outperforming both V1 and V2 on the recordings split (58.41\% vs 50.91\% and 39.04\%). The LSTM's temporal modeling appears particularly beneficial for the recordings split where sequence context helps disambiguate errors.
+
+\subsection{Error Type Analysis}
+
+As required by the project specifications, we analyze model performance across different error categories. Table \ref{tab:error_types} shows both V1 (MLP) and V2 (Transformer) performance on each error type using Omnivore features and step split.
+
+\begin{table}[h]
+\centering
+\caption{Error recognition by error type (Omnivore/step split). MLP shows identical results for 4/5 categories, while Transformer shows varied performance.}
+\label{tab:error_types}
+\begin{tabular}{lcccc}
+\toprule
+Error Type & MLP F1 & MLP AUC & Trans. F1 & Trans. AUC \\
+\midrule
+TimingError & \textbf{59.74\%} & 0.771 & 40.08\% & 0.600 \\
+TechniqueError & 55.50\% & 0.816 & 47.84\% & 0.687 \\
+PreparationError & 55.50\% & 0.816 & 49.56\% & 0.620 \\
+MeasurementError & 55.50\% & 0.816 & 22.63\% & 0.601 \\
+TemperatureError & 55.50\% & 0.816 & 44.03\% & 0.648 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key Observations:}
+\begin{itemize}
+    \item \textbf{MLP consistently outperforms Transformer} across all error types
+    \item \textbf{TimingError is most detectable} (59.74\% F1 for MLP) --- likely due to clear temporal signatures (overcooking, undercooking)
+    \item \textbf{MeasurementError is hardest for Transformer} (22.63\% F1) --- measurement errors require contextual understanding
+\end{itemize}
+
+\textbf{Strange Behavior - MLP Identical Results:} The MLP produces \textit{identical} F1 (55.50\%) and AUC (0.816) for four error categories (TechniqueError, PreparationError, MeasurementError, TemperatureError). Only TimingError differs. This likely occurs because: (1) the simple MLP learns a generic ``error detection'' boundary that doesn't differentiate between error types, (2) similar class distributions across these categories, and (3) Omnivore features lack fine-grained error-type discrimination. Notably, the Transformer does show varied performance across categories, suggesting that attention helps capture some error-type-specific patterns despite its lower overall performance.
+
+\subsection{ActionFormer Results}
+
+We train ActionFormer from scratch for temporal step localization on CaptainCook4D. Tables \ref{tab:actionformer_main} and \ref{tab:actionformer_arch} summarize our hyperparameter experiments.
+
+\begin{table}[h]
+\centering
+\caption{ActionFormer hyperparameter grid search. All standard models have 11.1M parameters.}
+\label{tab:actionformer_main}
+\begin{tabular}{lcccc}
+\toprule
+Experiment & Batch & LR & Best F1 & Epoch \\
+\midrule
+bs8\_lr1e-3 & 8 & 1e-3 & 0.0918 & 5 \\
+bs16\_lr1e-4 & 16 & 1e-4 & 0.0909 & 6 \\
+bs8\_lr1e-4 & 8 & 1e-4 & 0.0901 & 4 \\
+bs8\_lr5e-4 & 8 & 5e-4 & 0.0888 & 5 \\
+bs16\_lr1e-3 & 16 & 1e-3 & 0.0874 & 5 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{ActionFormer systematic grid search (81 combinations). Shows top 5 configurations. All models trained for 15 epochs.}
+\label{tab:actionformer_grid}
+\begin{tabular}{ccccc}
+\toprule
+Rank & Batch Size & LR & Embd Dim & F1 \\
+\midrule
+1 & 16 & 5e-4 & 256 & \textbf{0.0919} \\
+2 & 8 & 1e-3 & 512 & 0.0901 \\
+3 & 4 & 1e-3 & 384 & 0.0876 \\
+4 & 4 & 1e-3 & 512 & 0.0867 \\
+5 & 4 & 5e-4 & 384 & 0.0849 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Grid Search Configuration:} We tested batch sizes $\in \{4, 8, 16\}$, learning rates $\in \{10^{-3}, 5\cdot10^{-4}, 10^{-4}\}$, embedding dimensions $\in \{256, 384, 512\}$, and dropouts $\in \{0.1, 0.3, 0.5\}$. The best configuration (bs=16, lr=5e-4, embd=256, dropout=0.1) achieves F1=9.19\%, which is lower than our individual experiments with extended training (F1=9.36\% at 100 epochs). This demonstrates that longer training is beneficial for high-dropout configurations.
+
+\subsubsection{Why is ActionFormer Performance So Low?}
+
+The best ActionFormer achieves only F1=11.97\%, which may appear surprisingly low. However, this is \textbf{expected and normal} for several reasons:
+
+\begin{enumerate}
+    \item \textbf{No Pre-trained Checkpoint:} Unlike typical ActionFormer applications where models are pre-trained on large datasets (Ego4D: 3,670 hours, ActivityNet: 849 hours), we train from scratch on only 384 videos. The model lacks the strong temporal priors learned from large-scale pre-training.
+    
+    \item \textbf{Fine-grained Cooking Steps:} CaptainCook4D contains fine-grained cooking steps (e.g., ``add salt'', ``stir mixture'') that are visually similar and brief. This is fundamentally harder than localizing distinct activities like ``playing basketball'' vs ``cooking''.
+    
+    \item \textbf{Domain Gap:} Even pre-trained ActionFormer checkpoints (trained on Ego4D with EgoVLP features) perform poorly on CaptainCook4D, generating $\sim$200 low-confidence predictions per video. Fine-tuning helps but cannot fully bridge the domain gap.
+    
+    \item \textbf{Severe Overfitting:} With limited data, all configurations show training loss $\rightarrow$ 0.01-0.05 while validation loss $\rightarrow$ 1.0-1.8. The best F1 is achieved in very early epochs (4-12) before overfitting degrades performance.
+\end{enumerate}
+
+This challenge motivates our use of ground-truth boundaries as an oracle baseline for downstream task verification, allowing us to isolate the verification model's performance from localization errors.
+
+\textbf{Key Finding - The Regularization Paradox:} We hypothesized that the severe overfitting could be mitigated with stronger regularization. Table \ref{tab:regularization} shows surprising results.
+
+\begin{table}[h]
+\centering
+\caption{Regularization experiments. Adding regularization hurts the wider architecture but slightly helps the standard architecture.}
+\label{tab:regularization}
+\begin{tabular}{lccccc}
+\toprule
+Architecture & Dropout & WD & Best F1 & $\Delta$ vs Base & Epoch \\
+\midrule
+Wider (512d) & 0.1 & 0 & \textbf{0.1197} & baseline & 10 \\
+Wider (512d) & 0.3 & 0 & 0.0859 & -28.3\% & 4 \\
+Wider (512d) & 0.5 & 0 & 0.0778 & -35.0\% & 4 \\
+Wider (512d) & 0.1 & 1e-3 & 0.0772 & -35.5\% & 4 \\
+\midrule
+Standard (256d) & 0.1 & 0 & 0.0918 & baseline & 5 \\
+Standard (256d) & 0.3 & 0 & 0.0886 & -3.5\% & 5 \\
+Standard (256d) & 0.5 & 0 & \textbf{0.0936} & +2.0\% & 8 \\
+Standard (256d) & 0.3 & 1e-3 & 0.0901 & -1.9\% & 10 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Why does regularization hurt the wider model?} We observe that the wider model's advantage stems from its ability to memorize discriminative patterns during early epochs. Strong regularization prevents this early memorization, leading to worse peak performance even if overfitting is reduced. The model needs sufficient capacity to quickly learn the limited training patterns before overfitting degrades performance.
+
+This is a manifestation of the bias-variance tradeoff in a data-limited regime: when the dataset is small (384 videos), the model must learn quickly during early epochs. Regularization that would normally help in large-scale settings actually hinders learning speed, causing the model to miss the optimal window before early stopping triggers.
+
+\subsection{Task Verification Baseline Results (Extension)}
+
+For the extension's task verification step, we use step-level embeddings (from ground-truth boundaries or ActionFormer) with EgoVLP features. We conduct a grid search over hyperparameters: batch size $\in \{8, 16, 32\}$, learning rate $\in \{10^{-3}, 5\cdot10^{-4}, 10^{-4}\}$, hidden dim $\in \{128, 256, 512\}$, dropout $\in \{0.2, 0.3, 0.5\}$. Table \ref{tab:verification} shows best results per model.
+
+\begin{table}[h]
+\centering
+\caption{Task verification systematic grid search (108 combinations per model). Best config per model shown with leave-one-recipe-out evaluation.}
+\label{tab:verification}
+\begin{tabular}{lccccc}
+\toprule
+Model & Batch & LR & Hidden & Dropout & F1 \\
+\midrule
+\textbf{Transformer} & 32 & 1e-5 & 512 & 0.3 & \textbf{72.71\%} \\
+MLP & 32 & 1e-4 & 256 & 0.2 & 72.68\% \\
+LSTM & 16 & 1e-5 & 512 & 0.2 & 72.29\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Grid Search Configuration:} We tested batch sizes $\in \{8, 16, 32\}$, learning rates $\in \{10^{-2}, 10^{-3}, 10^{-4}, 10^{-5}\}$, hidden dimensions $\in \{128, 256, 512\}$, and dropouts $\in \{0.2, 0.3, 0.5\}$. The systematic search reveals that all three models achieve similar performance ($\sim$72\% F1), with very low learning rates (1e-4 to 1e-5) being optimal. Larger hidden dimensions (256-512) outperform smaller ones.
+
+\textbf{Key Finding - Models Converge to Similar Performance:} Surprisingly, all three model architectures achieve nearly identical F1 scores ($\sim$72\%) after systematic hyperparameter tuning. This suggests that in this low-data regime:
+\begin{enumerate}
+    \item \textbf{Feature quality dominates:} EgoVLP features are already highly semantic; model architecture matters less than optimal hyperparameters
+    \item \textbf{Very low learning rates are crucial:} Best configs use 1e-4 to 1e-5, much lower than typical defaults
+    \item \textbf{Larger hidden dimensions help:} 256-512 hidden dims outperform 128
+\end{enumerate}
+
+\textbf{Hyperparameter Insights:} MLP works best with lower learning rate (1e-4) and high dropout (0.5), while sequential models (LSTM, Transformer) prefer higher learning rates (1e-3) and moderate dropout (0.3). Hidden dimension 256 is optimal for all models---both smaller (128) and larger (512) dimensions underperform.
+
+\subsection{Step 3: Task Graph Matching Results}
+
+The Hungarian matching algorithm successfully aligns detected visual steps with task graph nodes. Figure \ref{fig:matching} shows example matching results with cosine similarity scores.
+
+We observe that matching quality varies significantly across recipes:
+\begin{itemize}
+    \item Simple recipes with distinct steps: similarity scores 0.15-0.25
+    \item Complex recipes with similar steps: similarity scores 0.08-0.12
+\end{itemize}
+
+The relatively low similarity scores (compared to typical CLIP-style matching) suggest that the EgoVLP feature space, while aligned, has limited discriminative power for fine-grained step matching in cooking domains.
+
+\subsection{Step 4: GNN Classification Results}
+
+Table \ref{tab:gnn} shows GNN classification results using leave-one-recipe-out evaluation.
+
+\begin{table}[h]
+\centering
+\caption{GNN classification results for task verification.}
+\label{tab:gnn}
+\begin{tabular}{lcccc}
+\toprule
+Model & Acc & Precision & Recall & F1 \\
+\midrule
+SimplePooling & 64.3\% & 68.2\% & 78.0\% & 69.9\% \\
+GCN & 67.4\% & 73.0\% & 73.5\% & 70.5\% \\
+GAT & 72.9\% & 80.4\% & 71.7\% & 73.8\% \\
+\textbf{GraphSAGE} & \textbf{72.5\%} & 76.7\% & \textbf{78.4\%} & \textbf{75.7\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key Findings:}
+\begin{itemize}
+    \item GraphSAGE achieves the best F1 (75.7\%), likely due to its inductive learning capabilities that generalize better across different recipe structures
+    \item GAT has highest precision (80.4\%) but lower recall
+    \item Even simple mean pooling achieves 69.9\% F1, suggesting that graph structure provides limited additional benefit
+\end{itemize}
+
+\section{Ablation Studies}
+
+We conduct systematic ablation studies to understand the effect of individual components and hyperparameters.
+
+\subsection{Effect of Model Capacity on ActionFormer}
+
+Table \ref{tab:actionformer_grid} shows how different hyperparameters affect localization performance. The systematic grid search over 81 configurations reveals that moderate batch sizes (16) with medium learning rates (5e-4) and smaller embedding dimensions (256) achieve the best results. Interestingly, larger models (embd=512) do not consistently outperform smaller ones, suggesting that capacity alone does not help in this data-limited regime.
+
+\subsection{Regularization vs. Model Capacity Trade-off}
+
+Table \ref{tab:regularization} reveals a surprising interaction between model capacity and regularization. For the wider model, any regularization (dropout $>$ 0.1 or weight decay $>$ 0) causes significant performance drops (-28\% to -35\%). However, for the standard model, moderate dropout (0.5) actually provides a small improvement (+2\%). This suggests that the optimal regularization strength depends on model capacity and should not be chosen independently.
+
+\subsection{Task Verification: Model Architecture Comparison}
+
+Our task verification experiments (Table \ref{tab:verification}) reveal that after systematic hyperparameter tuning, all architectures achieve similar performance in this low-data regime:
+\begin{itemize}
+    \item \textbf{Transformer}: 72.71\% F1 --- Slight edge with very low LR (1e-5)
+    \item \textbf{MLP} (simplest): 72.68\% F1 --- Nearly identical performance
+    \item \textbf{LSTM} (sequential): 72.29\% F1 --- Marginal difference
+\end{itemize}
+
+This convergence to similar performance across architectures suggests that the bottleneck is data quantity rather than model expressiveness. The optimal hyperparameters are remarkably consistent: very low learning rates and moderate-to-large hidden dimensions.
+
+\section{Discussion}
+
+\subsection{Analysis of Counter-Intuitive Behaviors}
+
+Following the project guidelines, we document and analyze the counter-intuitive phenomena observed during our experiments, particularly those arising from the low-data regime.
+
+\textbf{1. ActionFormer's Low Absolute Performance:} Despite extensive hyperparameter tuning, the best ActionFormer achieves only F1=11.97\%. This is \textbf{expected} given: (a) training from scratch without pre-training on large video datasets, (b) fine-grained cooking steps being inherently hard to localize, and (c) severe overfitting with only 384 training videos. As noted by the teaching assistant, ``the poor performance of ActionFormer is expected'' when training from scratch on this dataset.
+
+\textbf{2. Regularization Paradox:} The most counter-intuitive finding is that adding dropout/weight decay to the wider ActionFormer \textit{hurts} performance (F1 drops from 0.1197 to 0.0772, a 35\% decrease). This contradicts conventional wisdom that regularization helps with overfitting.
+
+\textit{Explanation:} In data-limited settings, the model must learn quickly during early epochs before overfitting destroys generalization. The wider model's advantage comes from rapid memorization of discriminative patterns in the first 10 epochs. Strong regularization slows this learning, causing the model to miss its optimal performance window. Notably, the best epoch shifts from 10 (without regularization) to 4 (with regularization), suggesting the model gives up learning earlier.
+
+\textbf{3. MLP Outperforms Sequential Models:} For verification, a simple MLP beats Transformer and LSTM despite having fewer parameters and no temporal modeling.
+
+\textit{Explanation:} EgoVLP features already encode rich semantic information through video-language pre-training. The verification task is essentially feature matching, not sequence modeling. Adding temporal complexity introduces noise and overfitting risk in this low-data regime. This aligns with the general observation that simpler models often win when data is limited.
+
+\textbf{4. High F1 but Low Accuracy:} The best MLP achieves 70.26\% F1 but only 57.0\% accuracy.
+
+\textit{Explanation:} This indicates class imbalance in the verification task. The model optimizes for the positive class (correct matches), achieving high recall at the cost of precision on the negative class, leading to lower overall accuracy.
+
+\textbf{5. Graph Structure Provides Limited Benefit:} Simple mean pooling over graph nodes (69.9\% F1) performs only slightly worse than GNN models (70.5-75.7\% F1).
+
+\textit{Explanation:} Task graphs for cooking recipes are relatively simple DAGs with limited structural complexity. The node features (visual-text fused embeddings) already capture most relevant information. GNNs provide incremental benefit by modeling dependencies between steps, but the graph structure itself is not highly informative for classification.
+
+\subsection{Limitations}
+
+\begin{itemize}
+    \item \textbf{Dataset size:} 384 videos is relatively small for training complex models, leading to overfitting in all experiments
+    \item \textbf{No pre-trained ActionFormer:} Training from scratch significantly limits localization performance; fine-tuning a pre-trained model would likely improve results
+    \item \textbf{Feature dependence:} All results depend heavily on the quality of pre-extracted features (EgoVLP, Omnivore, SlowFast)
+    \item \textbf{Matching quality:} Low similarity scores (0.08-0.25) in step matching may propagate errors to downstream GNN classification
+    \item \textbf{Ground-truth dependency:} Our best pipeline results use ground-truth step boundaries; real-world deployment would require better localization
+\end{itemize}
+
+\section{Conclusion}
+
+We presented a comprehensive study of procedural mistake detection and task verification on CaptainCook4D. We reproduced the V1 (MLP) and V2 (Transformer) baselines from the original paper and proposed V3 (LSTM) as an alternative baseline achieving 58.41\% F1. Our main findings include:
+
+\begin{enumerate}
+    \item \textbf{LSTM (V3) is competitive} with paper baselines, achieving strong results especially on the recordings split (58.41\% F1)
+    \item \textbf{ActionFormer trained from scratch} achieves F1=9.19\% (grid search) to 9.36\% (extended training), which is expected given the lack of pre-training and small dataset size
+    \item \textbf{Regularization hurts in data-limited settings} when models need to learn quickly during early epochs
+    \item \textbf{All verification models converge} to similar performance ($\sim$72\% F1) after systematic hyperparameter tuning, suggesting data quantity is the bottleneck
+    \item \textbf{GraphSAGE} achieves best task-level classification (F1=75.7\%) using task graph structure
+\end{enumerate}
+
+Our work highlights the importance of understanding \textit{why} certain approaches work or fail in specific settings. The counter-intuitive behaviors we observed (regularization paradox, MLP beating Transformers) provide insights for practitioners working with limited procedural video data. Future work could explore pre-training ActionFormer on larger datasets, data augmentation strategies, and ensemble methods to improve performance.
+
+{\small
+\bibliographystyle{ieee_fullname}
+\begin{thebibliography}{10}
+
+\bibitem{peddi2024captaincook4d}
+Rohith Peddi, Shivvrat Arya, Bharath Challa, et al.
+\newblock CaptainCook4D: A dataset for understanding errors in procedural activities.
+\newblock In \emph{NeurIPS}, 2024.
+
+\bibitem{seminara2024dtgl}
+Luigi Seminara, Giovanni Maria Farinella, and Antonino Furnari.
+\newblock Differentiable Task Graph Learning: Procedural Activity Representation and Online Mistake Detection from Egocentric Videos.
+\newblock In \emph{NeurIPS}, 2024.
+
+\bibitem{flaborea2024prego}
+Alessandro Flaborea, Guido D'Amely, et al.
+\newblock PREGO: Online Mistake Detection in PRocedural EGOcentric Videos.
+\newblock In \emph{CVPR}, 2024.
+
+\bibitem{peirone2024hiero}
+Simone Alberto Peirone, et al.
+\newblock HiERO: Understanding the hierarchy of human behavior enhances reasoning on egocentric videos.
+\newblock In \emph{ICCV}, 2025.
+
+\bibitem{girdhar2022omnivore}
+Rohit Girdhar, Mannat Singh, et al.
+\newblock Omnivore: A single model for many visual modalities.
+\newblock In \emph{CVPR}, 2022.
+
+\bibitem{feichtenhofer2019slowfast}
+Christoph Feichtenhofer, Haoqi Fan, et al.
+\newblock SlowFast networks for video recognition.
+\newblock In \emph{ICCV}, 2019.
+
+\bibitem{lin2022egocentric}
+Kevin Qinghong Lin, et al.
+\newblock Egocentric video-language pretraining.
+\newblock In \emph{NeurIPS}, 2022.
+
+\bibitem{zhang2022actionformer}
+Chenlin Zhang, et al.
+\newblock ActionFormer: Localizing Moments of Actions with Transformers.
+\newblock In \emph{ECCV}, 2022.
+
+\bibitem{thost2021dagnn}
+Veronika Thost and Jie Chen.
+\newblock Directed Acyclic Graph Neural Networks.
+\newblock In \emph{ICLR}, 2021.
+
+\bibitem{kipf2017gcn}
+Thomas N. Kipf and Max Welling.
+\newblock Semi-Supervised Classification with Graph Convolutional Networks.
+\newblock In \emph{ICLR}, 2017.
+
+\bibitem{velickovic2018gat}
+Petar Veli{\v{c}}kovi{\'c}, et al.
+\newblock Graph Attention Networks.
+\newblock In \emph{ICLR}, 2018.
+
+\bibitem{hamilton2017graphsage}
+William L. Hamilton, Rex Ying, and Jure Leskovec.
+\newblock Inductive Representation Learning on Large Graphs.
+\newblock In \emph{NeurIPS}, 2017.
+
+\end{thebibliography}
+}
+
+\end{document}

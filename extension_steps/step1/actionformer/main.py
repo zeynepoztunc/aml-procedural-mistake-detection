@@ -13,7 +13,7 @@ from tqdm import tqdm
 from .config import ModelConfig, Paths, TrainConfig, repo_root_from_file
 from .data import StepLocalizationDataset, load_features, load_json, collate_fn
 from .export import build_step_embeddings_actionformer, save_step_embeddings_pkl
-from .infer import predict_segments
+from .infer import boundary_probs, segments_from_probs, predict_segments
 from .model import ActionFormer, count_parameters
 from .train import cosine_with_warmup, evaluate, train_one_epoch
 
@@ -54,9 +54,64 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lr", type=float, default=5e-4)
     parser.add_argument("--weight-decay", type=float, default=0.05)
     parser.add_argument("--pos-weight", type=float, default=2.0)
-    parser.add_argument("--num-epochs", type=int, default=13)
+    parser.add_argument(
+        "--loss-type",
+        choices=["bce", "focal"],
+        default="bce",
+        help="Training loss for boundary logits (BCE-with-logits or focal loss).",
+    )
+    parser.add_argument(
+        "--focal-gamma",
+        type=float,
+        default=2.0,
+        help="Focal loss gamma (only used when --loss-type focal).",
+    )
+    parser.add_argument(
+        "--focal-alpha",
+        type=float,
+        default=None,
+        help="Optional focal loss alpha for class balancing (only used when --loss-type focal).",
+    )
+    parser.add_argument("--num-epochs", type=int, default=16)
     parser.add_argument("--warmup-epochs", type=int, default=5)
     parser.add_argument("--seed", type=int, default=1337)
+    parser.add_argument(
+        "--boundary-label-mode",
+        choices=["hard", "gaussian"],
+        default="hard",
+        help="How to build boundary labels for training (hard window vs soft Gaussian bump).",
+    )
+    parser.add_argument(
+        "--boundary-window",
+        type=int,
+        default=3,
+        help="Boundary label window radius in feature frames (hard labels or Gaussian truncation window).",
+    )
+    parser.add_argument(
+        "--boundary-sigma",
+        type=float,
+        default=1.5,
+        help="Gaussian sigma (in feature frames) when --boundary-label-mode gaussian.",
+    )
+
+    parser.add_argument(
+        "--select-best-by",
+        choices=["val_f1", "score_iou_count"],
+        default="val_f1",
+        help="Which validation metric to use for selecting/saving the best checkpoint.",
+    )
+    parser.add_argument(
+        "--val-seg-eval-every",
+        type=int,
+        default=1,
+        help="Run val segmentation IoU/count evaluation every N epochs (only used when selecting by score_iou_count).",
+    )
+    parser.add_argument(
+        "--score-count-penalty",
+        type=float,
+        default=0.02,
+        help="Penalty weight for segment-count mismatch in score_iou_count: iou_mean - w*abs(avg_pred-avg_gt).",
+    )
 
     parser.add_argument("--threshold", type=float, default=0.5, help="Boundary threshold for inference")
     parser.add_argument("--min-seg-len", type=int, default=15, help="Min segment length in feature frames")
@@ -129,6 +184,115 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _iou_1d(a: tuple[float, float], b: tuple[float, float]) -> float:
+    a0, a1 = a
+    b0, b1 = b
+    inter = max(0.0, min(a1, b1) - max(a0, b0))
+    union = max(1e-8, (a1 - a0) + (b1 - b0) - inter)
+    return inter / union
+
+
+def _greedy_match_iou(
+    *,
+    pred_segments: list[tuple[float, float]],
+    gt_segments: list[tuple[float, float]],
+) -> list[float]:
+    pairs: list[tuple[float, int, int]] = []
+    for i, ps in enumerate(pred_segments):
+        for j, gs in enumerate(gt_segments):
+            pairs.append((_iou_1d(ps, gs), i, j))
+    pairs.sort(reverse=True, key=lambda x: x[0])
+
+    used_p = set()
+    used_g = set()
+    ious: list[float] = []
+    for iou, i, j in pairs:
+        if i in used_p or j in used_g:
+            continue
+        used_p.add(i)
+        used_g.add(j)
+        ious.append(float(iou))
+    return ious
+
+
+def _mean(values: list[float]) -> float:
+    return float(np.mean(values)) if values else 0.0
+
+
+@torch.no_grad()
+def evaluate_val_segments(
+    *,
+    model: torch.nn.Module,
+    recording_ids: list[str],
+    annotations: dict[str, dict],
+    feature_dir: Path,
+    device: torch.device,
+    feature_fps: float,
+    infer_threshold: float,
+    min_seg_len: int,
+    smooth_window: int,
+    smooth_type: str,
+    smooth_sigma: float | None,
+    peak_distance: int,
+    segment_mode: str,
+    target_num_segments: int | None,
+    min_peak_prob: float,
+    max_seg_len: int | None,
+    min_split_peak_prob: float | None,
+    min_peak_prominence: float,
+    prominence_window: int,
+    score_count_penalty: float,
+) -> tuple[float, float, float, float]:
+    """
+    Validation metric aligned with Step 1 objectives:
+    - iou_mean: greedy 1-1 IoU mean across all matched pairs
+    - avg_gt_segments, avg_pred_segments
+    - score_iou_count = iou_mean - w*abs(avg_pred - avg_gt)
+    """
+    model.eval()
+
+    matched_ious: list[float] = []
+    gt_counts: list[int] = []
+    pred_counts: list[int] = []
+
+    for rid in recording_ids:
+        feats = load_features(rid, feature_dir)
+        if feats is None:
+            continue
+
+        probs = boundary_probs(model, feats, device)
+        seg_frames = segments_from_probs(
+            probs=probs,
+            threshold=float(infer_threshold),
+            min_segment_len=int(min_seg_len),
+            smooth_window=int(smooth_window),
+            smooth_type=str(smooth_type),
+            smooth_sigma=smooth_sigma,
+            peak_distance=int(peak_distance),
+            segment_mode=str(segment_mode),
+            target_num_segments=target_num_segments,
+            min_peak_prob=float(min_peak_prob),
+            max_segment_len=int(max_seg_len) if max_seg_len is not None else None,
+            min_split_peak_prob=min_split_peak_prob,
+            min_peak_prominence=float(min_peak_prominence),
+            prominence_window=int(prominence_window),
+        )
+        pred_segments = [(sf / float(feature_fps), ef / float(feature_fps)) for sf, ef in seg_frames]
+
+        steps = (annotations.get(rid) or {}).get("steps") or []
+        gt_segments = [(float(s["start_time"]), float(s["end_time"])) for s in steps]
+
+        gt_counts.append(len(gt_segments))
+        pred_counts.append(len(pred_segments))
+        matched_ious.extend(_greedy_match_iou(pred_segments=pred_segments, gt_segments=gt_segments))
+
+    iou_mean = _mean(matched_ious)
+    avg_gt = _mean(gt_counts)
+    avg_pred = _mean(pred_counts)
+    score = float(iou_mean) - float(score_count_penalty) * abs(float(avg_pred) - float(avg_gt))
+    return float(iou_mean), float(avg_gt), float(avg_pred), float(score)
+
+
 def main() -> int:
     # Pipeline entrypoint:
     # 1) load JSON + features
@@ -187,6 +351,9 @@ def main() -> int:
         feature_dir=paths.egovlp_feature_dir,
         max_len=train_cfg.max_len,
         feature_fps=train_cfg.feature_fps,
+        boundary_window=args.boundary_window,
+        boundary_label_mode=args.boundary_label_mode,
+        boundary_sigma=args.boundary_sigma,
     )
     val_ds = StepLocalizationDataset(
         recording_ids=val_ids,
@@ -194,6 +361,9 @@ def main() -> int:
         feature_dir=paths.egovlp_feature_dir,
         max_len=train_cfg.max_len,
         feature_fps=train_cfg.feature_fps,
+        boundary_window=args.boundary_window,
+        boundary_label_mode=args.boundary_label_mode,
+        boundary_sigma=args.boundary_sigma,
     )
     train_loader = DataLoader(train_ds, batch_size=train_cfg.batch_size, shuffle=True, collate_fn=collate_fn)
     val_loader = DataLoader(val_ds, batch_size=train_cfg.batch_size, shuffle=False, collate_fn=collate_fn)
@@ -221,7 +391,8 @@ def main() -> int:
     if args.mode in ("train", "train+infer"):
         optimizer = torch.optim.AdamW(model.parameters(), lr=train_cfg.lr, weight_decay=train_cfg.weight_decay)
 
-        best_f1 = -1.0
+        best_val_f1 = -1.0
+        best_val_score = -1e9
         best_state: dict[str, torch.Tensor] | None = None
         for epoch in range(train_cfg.num_epochs):
             lr_now = cosine_with_warmup(
@@ -238,15 +409,59 @@ def main() -> int:
                 device=device,
                 pos_weight=train_cfg.pos_weight,
                 optimizer=optimizer,
+                loss_type=str(args.loss_type),
+                focal_gamma=float(args.focal_gamma),
+                focal_alpha=args.focal_alpha,
             )
             stats = evaluate(model=model, loader=val_loader, device=device, pos_weight=train_cfg.pos_weight, threshold=0.5)
-            print(
+            if stats.val_f1 > best_val_f1:
+                best_val_f1 = stats.val_f1
+
+            line = (
                 f"[epoch {epoch+1:02d}/{train_cfg.num_epochs}] "
                 f"train_loss={train_loss:.4f} val_loss={stats.val_loss:.4f} val_f1={stats.val_f1:.4f} lr={lr_now:.2e}"
             )
-            if stats.val_f1 > best_f1:
-                best_f1 = stats.val_f1
-                best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+
+            val_score = None
+            if args.select_best_by == "score_iou_count" and (epoch % max(1, int(args.val_seg_eval_every)) == 0):
+                val_iou, val_avg_gt, val_avg_pred, val_score = evaluate_val_segments(
+                    model=model,
+                    recording_ids=val_ids,
+                    annotations=annotations,
+                    feature_dir=paths.egovlp_feature_dir,
+                    device=device,
+                    feature_fps=train_cfg.feature_fps,
+                    infer_threshold=args.threshold,
+                    min_seg_len=args.min_seg_len,
+                    smooth_window=args.smooth_window,
+                    smooth_type=args.smooth_type,
+                    smooth_sigma=args.smooth_sigma,
+                    peak_distance=args.peak_distance,
+                    segment_mode=args.segment_mode,
+                    target_num_segments=args.target_num_segments,
+                    min_peak_prob=args.min_peak_prob,
+                    max_seg_len=args.max_seg_len,
+                    min_split_peak_prob=args.min_split_peak_prob,
+                    min_peak_prominence=args.min_peak_prominence,
+                    prominence_window=args.prominence_window,
+                    score_count_penalty=args.score_count_penalty,
+                )
+                line += (
+                    f" val_iou={float(val_iou):.4f} "
+                    f"val_avg_segs(gt/pred)={float(val_avg_gt):.2f}/{float(val_avg_pred):.2f} "
+                    f"val_score={float(val_score):.4f}"
+                )
+
+            print(line)
+
+            if args.select_best_by == "val_f1":
+                # Save the best-by-val-F1 checkpoint (ties go to the latest).
+                if stats.val_f1 >= best_val_f1:
+                    best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+            else:
+                if val_score is not None and float(val_score) > best_val_score:
+                    best_val_score = float(val_score)
+                    best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
 
         if best_state is not None:
             model.load_state_dict(best_state)
@@ -257,7 +472,9 @@ def main() -> int:
                 "model_state_dict": {k: v.detach().cpu() for k, v in model.state_dict().items()},
                 "model_config": model_cfg.__dict__,
                 "train_config": train_cfg.__dict__,
-                "best_val_f1": float(best_f1),
+                "best_val_f1": float(best_val_f1),
+                "best_val_score_iou_count": float(best_val_score),
+                "select_best_by": str(args.select_best_by),
             },
             str(checkpoint_path),
         )

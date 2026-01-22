@@ -202,6 +202,15 @@ Common knobs:
 - `--segment-mode topk --target-num-segments 15` forces ~15 segments by picking the strongest peaks.
 - `--max-seg-len 60` (optional) splits very long segments using strong peaks (a simple duration prior).
 - `--feature-fps` must match how often features were extracted (this repo typically uses `0.5`).
+- Training checkpoint selection:
+  - Default selects best by `val_f1` (`--select-best-by val_f1`).
+  - If optimizing Step 1 overlap + granularity, use `--select-best-by score_iou_count` (uses your inference post-processing params on the val split).
+  - Boundary target shape:
+    - Default uses hard 0/1 labels in a small window around GT boundaries (`--boundary-label-mode hard`).
+    - Optional soft targets use a Gaussian bump around GT boundaries (`--boundary-label-mode gaussian --boundary-window 3 --boundary-sigma 1.5`).
+  - Loss:
+    - Default: `--loss-type bce` (BCE-with-logits with `--pos-weight`).
+    - Alternative: `--loss-type focal --focal-gamma 2.0 [--focal-alpha 0.25]` (often reduces spurious boundaries).
 
 ---
 

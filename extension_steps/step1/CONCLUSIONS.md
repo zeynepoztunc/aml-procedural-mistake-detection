@@ -209,7 +209,7 @@ Add entries here as you iterate so you can justify design decisions in your repo
 - Selected the top configuration from the **val** sweep ranked by `score_iou_count`:
   - `threshold=0.6`, `min_seg_len=8`, `smooth_window=5`, `smooth_type=gaussian`
 - Evaluated on **test** using `compare_segments.py`:
-  - `extension_data/step_embeddings_actionformer_thr0.6_min8_sm5_gauss.pkl`
+  - `extension_data/step1_embeddings/step_embeddings_actionformer_thr0.6_min8_sm5_gauss.pkl`
 
 **Localization comparison vs GT (test split)**
 - Avg #segments: **GT=15.00**, **Pred=14.94** (closest so far)
@@ -225,3 +225,116 @@ Add entries here as you iterate so you can justify design decisions in your repo
 **Quick comparison**
 - Slightly better than the `thr=0.7, min=8` run in boundary F1 and segment count closeness.
 - Still slightly behind the earlier best test IoU (`0.591`) by a small margin.
+
+### 2026-01-22 — Box smoothing @ thr=0.6 (test evaluation)
+
+**Change / setup**
+- Tested the strongest `box` smoothing candidate from the val “high threshold” sweep:
+  - `threshold=0.6`, `min_seg_len=8`, `smooth_window=5`, `smooth_type=box`
+- Evaluated on **test** using `compare_segments.py`:
+  - `extension_data/step1_embeddings/step_embeddings_actionformer_thr0.6_min8_sm5_box.pkl`
+
+**Localization comparison vs GT (test split)**
+- Avg #segments: **GT=15.00**, **Pred=13.94**
+- Boundary tolerance sweep:
+  - ±1s: **P=0.142**, **R=0.126**, **F1=0.130**
+  - ±2s: **P=0.267**, **R=0.242**, **F1=0.249**
+  - ±3s: **P=0.365**, **R=0.324**, **F1=0.337**
+  - ±4s: **P=0.433**, **R=0.386**, **F1=0.399**
+  - ±5s: **P=0.489**, **R=0.438**, **F1=0.453**
+  - ±6s: **P=0.548**, **R=0.490**, **F1=0.507**
+- Segment overlap (greedy 1–1 IoU): **mean=0.594** over **610** matched pairs
+
+**Notes**
+- Best IoU observed so far on test (**0.594**), but predicted segment count drops to **13.94**.
+
+### 2026-01-22 — Recommended inference config (balanced IoU + segment count)
+
+**Why this config**
+- Among the tested configurations, this one provides **near-best IoU** while keeping the **predicted segment count close to GT**.
+- Use this as the default Step 1 ActionFormer inference setting for downstream steps.
+
+**Config**
+- `threshold=0.5`, `min_seg_len=8`, `smooth_window=5`, `smooth_type=box`
+- Output pkl: `extension_data/step1_embeddings/step_embeddings_actionformer_thr0.5_min8_sm5_box.pkl`
+
+**Test results (compare vs GT)**
+- Avg #segments: **GT=15.00**, **Pred=14.85**
+- Boundary tolerance sweep:
+  - ±1s: **P=0.138**, **R=0.130**, **F1=0.131**
+  - ±2s: **P=0.259**, **R=0.247**, **F1=0.248**
+  - ±3s: **P=0.353**, **R=0.332**, **F1=0.335**
+  - ±4s: **P=0.422**, **R=0.398**, **F1=0.402**
+  - ±5s: **P=0.478**, **R=0.453**, **F1=0.455**
+  - ±6s: **P=0.535**, **R=0.506**, **F1=0.510**
+- Segment overlap (greedy 1–1 IoU): **mean=0.593** over **629** matched pairs
+
+### 2026-01-22 — Training improvement: Gaussian labels + higher pos_weight (test evaluation)
+
+**Change / setup**
+- Trained with soft Gaussian boundary targets and increased positive class weight to address class imbalance:
+  - `--boundary-label-mode gaussian --boundary-window 2 --boundary-sigma 1.0`
+  - `--pos-weight 7`
+  - checkpoint selection: `--select-best-by score_iou_count`
+- Evaluated exported `extension_data/step_embeddings_actionformer.pkl` on **test**.
+
+**Localization comparison vs GT (test split)**
+- Avg #segments: **GT=15.00**, **Pred=15.69** (slight over-segmentation)
+- Boundary tolerance sweep:
+  - ±1s: **P=0.127**, **R=0.124**, **F1=0.122**
+  - ±2s: **P=0.255**, **R=0.249**, **F1=0.247**
+  - ±3s: **P=0.357**, **R=0.348**, **F1=0.345**
+  - ±4s: **P=0.449**, **R=0.440**, **F1=0.435**
+  - ±5s: **P=0.502**, **R=0.495**, **F1=0.487**
+  - ±6s: **P=0.544**, **R=0.539**, **F1=0.529**
+- Segment overlap (greedy 1–1 IoU): **mean=0.603** over **638** matched pairs
+
+**Notes**
+- This is the best IoU observed so far on test (**0.603**), suggesting training improvements can meaningfully improve overlap.
+- Next: tune inference threshold/prominence slightly upward to bring `avg_pred` closer to ~15 while preserving IoU.
+
+### 2026-01-22 — Best overall run so far (Gaussian labels + pos_weight=6)
+
+**Training config (command used)**
+- `--boundary-label-mode gaussian --boundary-window 2 --boundary-sigma 1.0`
+- `--pos-weight 6`
+- `--select-best-by score_iou_count`
+- Inference/post-processing during export/eval:
+  - `--threshold 0.5 --min-seg-len 8 --smooth-window 5 --smooth-type box`
+
+**Artifacts saved (frozen filenames)**
+- Checkpoint: `extension_data/checkpoints/actionformer_best_gaussLbl_w2_s1_pos6_score_ioucount.pt`
+- Step embeddings: `extension_data/step1_embeddings/step_embeddings_actionformer_gaussLbl_w2_s1_pos6_thr0.5_min8_sm5_box.pkl`
+
+**Test results (compare vs GT)**
+- Avg #segments: **GT=15.00**, **Pred=15.23**
+- Boundary tolerance sweep:
+  - ±1s: **P=0.139**, **R=0.134**, **F1=0.134**
+  - ±2s: **P=0.261**, **R=0.251**, **F1=0.251**
+  - ±3s: **P=0.363**, **R=0.348**, **F1=0.348**
+  - ±4s: **P=0.452**, **R=0.439**, **F1=0.437**
+  - ±5s: **P=0.518**, **R=0.504**, **F1=0.501**
+  - ±6s: **P=0.566**, **R=0.550**, **F1=0.547**
+- Segment overlap (greedy 1–1 IoU): **mean=0.601** over **637** matched pairs
+
+### 2026-01-22 — Best balanced test result so far (IoU=0.603 with higher F1@2s)
+
+**Exact command (reproducible)**
+```bash
+python extension_steps/step1/actionformer.py --align-to-gt --select-best-by score_iou_count --threshold 0.5 --min-seg-len 8 --smooth-window 5 --smooth-type box --boundary-label-mode gaussian --boundary-window 2 --boundary-sigma 1.0 --pos-weight 6 --loss-type focal --focal-gamma 1.0
+```
+
+**Artifacts saved (frozen filenames)**
+- Checkpoint: `extension_data/checkpoints/actionformer_best_for_step_embeddings_actionformer_best_test_iou0.603_f12s0.256.pt`
+- Step embeddings: `extension_data/step1_embeddings/step_embeddings_actionformer_best_test_iou0.603_f12s0.256.pkl`
+
+**Test results (compare vs GT)**
+- Avg #segments: **GT=15.00**, **Pred=14.50**
+- Boundary tolerance sweep:
+  - ±1s: **P=0.151**, **R=0.138**, **F1=0.141**
+  - ±2s: **P=0.273**, **R=0.250**, **F1=0.256**
+  - ±3s: **P=0.381**, **R=0.347**, **F1=0.356**
+  - ±4s: **P=0.484**, **R=0.446**, **F1=0.456**
+  - ±5s: **P=0.539**, **R=0.499**, **F1=0.508**
+  - ±6s: **P=0.575**, **R=0.534**, **F1=0.543**
+- Segment overlap (greedy 1–1 IoU): **mean=0.603** over **622** matched pairs

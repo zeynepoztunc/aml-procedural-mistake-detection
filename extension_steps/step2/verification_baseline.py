@@ -6,16 +6,17 @@ from pathlib import Path
 
 def _ensure_import_root() -> None:
     # Allow running this file directly:
-    #   python aml-procedural-mistake-detection/extension_steps/step4_gnn_classification.py --help
+    #   python aml-procedural-mistake-detection/extension_steps/step2/verification_baseline.py --help
     # by adding `aml-procedural-mistake-detection/` to sys.path.
-    pkg_root = Path(__file__).resolve().parents[1]
+    pkg_root = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(pkg_root))
 
 
 _ensure_import_root()
 
-from extension_steps.step4.main import main  # noqa: E402
+from extension_steps.step2.main import main  # noqa: E402
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
