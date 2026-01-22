@@ -108,7 +108,7 @@ def main() -> int:
         print("\nExtension notebook deps: OK")
 
     print("\nNext:")
-    print("  - Run: extension_step1_localization.ipynb")
+    print("  - Run: extension_step1_pipeline.ipynb")
     print("  - Then: extension_step2_verification_baseline.ipynb")
     print("  - Then: extension_step3_task_graph_matching.ipynb")
     print("  - Then: extension_step4_gnn_classification.ipynb")

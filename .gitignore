@@ -170,6 +170,8 @@ checkpoints
 wandb
 stats
 error_recognition_best
+pretrained/
+runs/
 
 results
 .vscode
@@ -178,3 +180,13 @@ results
 extension_data/
 tools/_runs/
 tools/__pycache__/
+
+# Large dataset / artifact file types (keep raw data out of git)
+*.npz
+*.npy
+*.pt
+*.pth
+*.ckpt
+*.pkl
+*.h5
+*.hdf5

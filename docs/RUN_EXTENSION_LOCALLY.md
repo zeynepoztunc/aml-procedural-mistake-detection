@@ -39,6 +39,13 @@ This executes the notebooks in order (and writes logs + executed notebooks under
 python tools/run_extension_notebooks.py
 ```
 
+Note: Step 2 contains an expensive grid-search section; the runner skips those cells by default.
+Enable them explicitly with:
+
+```bash
+python tools/run_extension_notebooks.py --steps step2 --grid-search
+```
+
 If you want to run only some steps:
 
 ```bash
