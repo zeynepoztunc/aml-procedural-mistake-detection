@@ -1,12 +1,12 @@
 # Run Extension Notebooks Locally
 
-This branch’s extension work (Step 1–4) is primarily implemented in notebooks:
+This branch’s extension work (Step 1–4) is primarily implemented in notebooks under `notebooks/`:
 
-- `extension_step1_pipeline.ipynb` (GT step boundaries → step embeddings)
-- `extension_step1_actionformer.ipynb` (ActionFormer-based step localization experiments)
-- `extension_step2_verification_baseline.ipynb`
-- `extension_step3_task_graph_matching.ipynb`
-- `extension_step4_gnn_classification.ipynb`
+- `notebooks/extension_step1_pipeline.ipynb` (GT step boundaries → step embeddings)
+- `notebooks/extension_step1_actionformer.ipynb` (ActionFormer-based step localization experiments)
+- `notebooks/extension_step2_verification_baseline.ipynb`
+- `notebooks/extension_step3_task_graph_matching.ipynb`
+- `notebooks/extension_step4_gnn_classification.ipynb`
 
 ## 1) Environment
 
@@ -68,14 +68,14 @@ The notebooks write outputs to:
 
 ### A) Ground-truth boundaries (simpler baseline)
 
-1. Run `extension_step1_pipeline.ipynb` (produces `extension_data/step_embeddings_gt.pkl`)
-2. Run `extension_step2_verification_baseline.ipynb`
-3. Run `extension_step3_task_graph_matching.ipynb` (produces `extension_data/realized_task_graphs.pkl`)
-4. Run `extension_step4_gnn_classification.ipynb`
+1. Run `notebooks/extension_step1_pipeline.ipynb` (produces `extension_data/step_embeddings_gt.pkl`)
+2. Run `notebooks/extension_step2_verification_baseline.ipynb`
+3. Run `notebooks/extension_step3_task_graph_matching.ipynb` (produces `extension_data/realized_task_graphs.pkl`)
+4. Run `notebooks/extension_step4_gnn_classification.ipynb`
 
 ### B) ActionFormer-style boundaries (automatic segmentation)
 
-1. Run `extension_step1_actionformer.ipynb` (produces ActionFormer-derived boundaries and step embeddings, depending on the method you select in the notebook)
+1. Run `notebooks/extension_step1_actionformer.ipynb` (produces ActionFormer-derived boundaries and step embeddings, depending on the method you select in the notebook)
 2. Ensure downstream notebooks point to the ActionFormer output (if they currently load `extension_data/step_embeddings_gt.pkl`, switch to the ActionFormer feature file you produced).
 
 ## 4) Common local issues

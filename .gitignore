@@ -190,3 +190,16 @@ tools/__pycache__/
 *.pkl
 *.h5
 *.hdf5
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.out
+*.synctex
+*.synctex.gz
+*.toc
+*.lof
+*.lot
