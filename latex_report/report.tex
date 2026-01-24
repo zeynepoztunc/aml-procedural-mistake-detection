@@ -169,6 +169,8 @@ After matching, we create a ``realized'' task graph by updating matched nodes wi
 g'_j = \text{Proj}([g_j; v_i])
 \end{equation}
 
+\textbf{Implementation note (text embeddings):} While the ideal setup uses the aligned EgoVLP/PerceptionEncoder text encoder, some of our local runs use a lightweight alternative to avoid downloading large checkpoints: we encode node descriptions with a small text model and fit a ridge-regression projection into the Step-1 visual embedding space using GT pairs $(\text{description}, v)$. The learned projection is cached (e.g., as \texttt{extension\_data/step3\_text\_to\_visual\_W.npy}) and allows Hungarian matching to operate in the same space as Step 1.
+
 \subsection{Step 4: GNN Classification}
 
 We train a Graph Neural Network to classify the realized task graph as correct or incorrect. We experiment with multiple GNN architectures:
@@ -263,7 +265,7 @@ TemperatureError & 55.50\% & 0.816 & 44.03\% & 0.648 \\
 
 \subsection{ActionFormer Results}
 
-We train ActionFormer from scratch for temporal step localization on CaptainCook4D. Tables \ref{tab:actionformer_main} and \ref{tab:actionformer_arch} summarize our hyperparameter experiments.
+We train ActionFormer from scratch for temporal step localization on CaptainCook4D. Table \ref{tab:actionformer_main} summarizes representative hyperparameter experiments.
 
 \begin{table}[h]
 \centering
@@ -369,6 +371,17 @@ LSTM & 16 & 1e-5 & 512 & 0.2 & 72.29\% \\
 
 The Hungarian matching algorithm successfully aligns detected visual steps with task graph nodes. Figure \ref{fig:matching} shows example matching results with cosine similarity scores.
 
+\begin{figure}[h]
+\centering
+\IfFileExists{../extension_data/plots/matching_analysis.png}{%
+  \includegraphics[width=\linewidth]{../extension_data/plots/matching_analysis.png}%
+}{%
+  \fbox{\parbox{\linewidth}{\centering matching\_analysis.png missing\\(expected at ../extension\_data/plots/matching\_analysis.png)}}%
+}
+\caption{Matching analysis summary used in Step 3: distribution and summary statistics of cosine similarities produced by Hungarian assignment.}
+\label{fig:matching}
+\end{figure}
+
 We observe that matching quality varies significantly across recipes:
 \begin{itemize}
     \item Overall mean similarity is $\sim$0.731 across recordings, while the mean minimum-node similarity is $\sim$0.415.
@@ -408,9 +421,28 @@ SimplePooling (baseline) & 64.26\% & 68.10\% & 79.00\% & 70.06\% \\
 
 We conduct systematic ablation studies to understand the effect of individual components and hyperparameters.
 
-\subsection{Effect of Model Capacity on ActionFormer}
+\subsection{Effect of Inference Post-processing on ActionFormer}
 
-Table \ref{tab:actionformer_grid} shows how different hyperparameters affect localization performance. The systematic grid search over 81 configurations reveals that moderate batch sizes (16) with medium learning rates (5e-4) and smaller embedding dimensions (256) achieve the best results. Interestingly, larger models (embd=512) do not consistently outperform smaller ones, suggesting that capacity alone does not help in this data-limited regime.
+ActionFormer localization quality is sensitive not only to training, but also to inference post-processing (thresholding, minimum segment length, smoothing, and peak filtering). Table \ref{tab:actionformer_grid} summarizes the top-performing post-processing configurations from our validation sweep (optimized for boundary F1 at $\pm$2s).
+
+\begin{table}[h]
+\centering
+\caption{ActionFormer inference post-processing sweep (val). Top unique configurations by boundary F1@$\pm$2s.}
+\label{tab:actionformer_grid}
+{\scriptsize\tighttabcolsep\tighttablerowstretch
+\begin{tabular}{lcccc}
+\toprule
+thr & min\_len & smooth(w) & peak\_dist & F1@2s \\
+\midrule
+0.4 & 6 & box(5) & 0 & 0.2373 \\
+0.4 & 6 & box(5) & 3 & 0.2373 \\
+0.4 & 6 & box(5) & 5 & 0.2373 \\
+0.5 & 6 & box(5) & 0 & 0.2357 \\
+0.5 & 6 & box(5) & 3 & 0.2357 \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
 
 \subsection{Regularization vs. Model Capacity Trade-off}
 
