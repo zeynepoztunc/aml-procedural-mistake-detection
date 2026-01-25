@@ -24,6 +24,7 @@ Run logs are stored under `tools/_runs/extension_local_notebooks/`:
 - Step 2: `tools/_runs/extension_local_notebooks/20260114_232507/SUMMARY.txt`
 - Step 4: `tools/_runs/extension_local_notebooks/20260115_022403/SUMMARY.txt`
 
+
 ## Inputs / expected data layout
 
 - EgoVLP features: `data/features/egovlp/`
