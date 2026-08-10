@@ -194,21 +194,13 @@ def train_model_base(train_loader, val_loader, config, test_loader=None):
             for batch_idx, (data, target) in enumerate(train_loader):
                 data, target = data.to(device), target.to(device)
 
-                # assert not torch.isnan(data).any(), "Data contains NaN values"
+                assert not torch.isnan(data).any(), "Data contains NaN values"
 
                 optimizer.zero_grad()
                 output = model(data)
                 loss = criterion(output, target)
 
-                if torch.isnan(loss).any():
-                    if data.numel() > 0:
-                        print(f"Warning: NaN loss detected at epoch {epoch}, batch {batch_idx}. Input stats: Min={data.min():.2f}, Max={data.max():.2f}")
-                    else:
-                        print(f"Warning: NaN loss detected at epoch {epoch}, batch {batch_idx}. Empty batch encountered.")
-                    optimizer.zero_grad()
-                    continue
-
-                # assert not torch.isnan(loss).any(), "Loss contains NaN values"
+                assert not torch.isnan(loss).any(), "Loss contains NaN values"
 
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # Gradient clipping
@@ -417,32 +409,35 @@ def test_er_model(model, test_loader, criterion, device, phase, step_normalizati
         # else:
         #     step_output = neg_output
         if len(step_output) == 0:
-            # Handle empty steps (robustness)
-            mean_step_output = 0.0 
-            step_target = 0
-            # Optional: Log warning if needed, but safe default avoids crash
-            # print(f"Warning: Empty step encountered at index {start}:{end}")
-        else:
-            step_output = np.array(step_output)
-            # # Scale the output to [0, 1]
-            if start - end > 1:
-                if sub_step_normalization:
-                    prob_range = np.max(step_output) - np.min(step_output)
-                    step_output = (step_output - np.min(step_output)) / prob_range
+            # A step contributed zero feature rows, meaning its annotation window did
+            # not overlap the feature array at all. This is the signature of a
+            # feature/annotation time-base mismatch: CaptainCookStepDataset indexes
+            # feature rows with raw annotation timestamps in SECONDS, so features must
+            # be extracted at a 1s window / 1s stride (see SEGMENT_LENGTH in
+            # colab_feature_extraction.ipynb). Do NOT paper over this: the previous
+            # behaviour scored the step as mean_step_output=0.0 with a FABRICATED
+            # step_target=0, injecting synthetic negatives into the ground truth and
+            # inflating accuracy/AUC -- corrupting the metric itself, not just the model.
+            raise ValueError(
+                f"Empty feature slice for step spanning outputs [{start}:{end}]. "
+                f"Features and annotations are on different time bases -- re-extract "
+                f"features with SEGMENT_LENGTH = 1 rather than suppressing this."
+            )
 
-            mean_step_output = np.mean(step_output)
-            step_target = 1 if np.mean(step_target) > 0.95 else 0
+        step_output = np.array(step_output)
+        # # Scale the output to [0, 1]
+        if start - end > 1:
+            if sub_step_normalization:
+                prob_range = np.max(step_output) - np.min(step_output)
+                step_output = (step_output - np.min(step_output)) / prob_range
+
+        mean_step_output = np.mean(step_output)
+        step_target = 1 if np.mean(step_target) > 0.95 else 0
 
         all_step_outputs.append(mean_step_output)
         all_step_targets.append(step_target)
 
     all_step_outputs = np.array(all_step_outputs)
-    
-    # Remove any NaNs that might have slipped through
-    # (though the check above should handle empty steps)
-    if np.isnan(all_step_outputs).any():
-        print("Warning: NaNs detected in all_step_outputs. Replacing with 0.")
-        all_step_outputs = np.nan_to_num(all_step_outputs, nan=0.0)
 
     # # Scale the output to [0, 1]
     if step_normalization and len(all_step_outputs) > 0:
