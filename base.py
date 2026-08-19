@@ -26,11 +26,16 @@ def fetch_model_name(config):
         return fetch_model_name_ecr(config)
     elif config.task_name in  [const.EARLY_ERROR_RECOGNITION, const.ERROR_RECOGNITION]:
         if config.model_name is None:
-            if config.backbone in [const.RESNET3D, const.X3D, const.SLOWFAST, const.OMNIVORE]:
+            if config.backbone in [const.RESNET3D, const.X3D, const.SLOWFAST, const.OMNIVORE,
+                                   const.EGOVLP]:
                 config.model_name = f"{config.task_name}_{config.split}_{config.backbone}_{config.variant}_{config.modality[0]}"
             elif config.backbone == const.IMAGEBIND:
                 combined_modality_name = '_'.join(config.modality)
                 config.model_name = f"{config.task_name}_{config.split}_{config.backbone}_{config.variant}_{combined_modality_name}"
+    assert config.model_name is not None, (
+        f"No model_name rule for backbone {config.backbone!r} in fetch_model_name; "
+        f"add it to one of the branches above."
+    )
     return config.model_name
 
 
@@ -251,8 +256,14 @@ def train_model_base(train_loader, val_loader, config, test_loader=None):
             if config.enable_wandb:
                 wandb.log(running_metrics)
 
-            print(f'Epoch: {epoch}, Train Loss: {avg_train_loss:.6f}, Test Loss: {avg_test_loss:.6f}, '
-                  f'Precision: {precision:.6f}, Recall: {recall:.6f}, F1: {f1:.6f}, AUC: {auc:.6f}')
+            # precision/recall/f1/auc come from the VALIDATION loader (step_metrics above),
+            # not from test_loader. Label them so the epoch log cannot be misread as a
+            # test-set result: the checkpoint is also selected on this same val AUC, so
+            # these figures are optimistic and the test split must be scored separately.
+            print(f'Epoch: {epoch}, Train Loss: {avg_train_loss:.6f}, '
+                  f'Val Loss: {avg_val_loss:.6f}, Test Loss: {avg_test_loss:.6f}, '
+                  f'Val Precision: {precision:.6f}, Val Recall: {recall:.6f}, '
+                  f'Val F1: {f1:.6f}, Val AUC: {auc:.6f}')
 
             # Update best model based on the chosen metric, here using AUC as an example
             if auc > best_model['metric']:
