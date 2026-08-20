@@ -3,7 +3,6 @@ from base import fetch_model_name, train_step_test_step_dataset_base, train_sub_
     train_model_base
 from core.config import Config
 from core.utils import init_logger_and_wandb
-from constants import Constants as const
 
 
 def train_sub_step_test_step_er(config):
@@ -18,7 +17,6 @@ def train_step_test_step_er(config):
 
 def main():
     conf = Config()
-    conf.task_name = const.ERROR_RECOGNITION
     if conf.model_name is None:
         m_name = fetch_model_name(conf)
         conf.model_name = m_name

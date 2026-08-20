@@ -73,7 +73,8 @@ def convert_and_round(value):
 
 
 def collate_stats(config, sub_step_metrics, step_metrics):
-    collated_stats = [config.split, config.backbone, config.variant, config.modality]
+    collated_stats = [config.split, config.backbone, config.variant, config.modality,
+                      config.task_name, config.error_category]
     for metric in [const.PRECISION, const.RECALL, const.F1, const.ACCURACY, const.AUC, const.PR_AUC]:
         collated_stats.append(convert_and_round(sub_step_metrics[metric]))
     for metric in [const.PRECISION, const.RECALL, const.F1, const.ACCURACY, const.AUC, const.PR_AUC]:
@@ -99,7 +100,7 @@ def save_results_to_csv(config, sub_step_metrics, step_metrics, step_normalizati
         writer = csv.writer(activity_idx_step_idx_annotation_csv_file, quoting=csv.QUOTE_NONNUMERIC)
         if not file_exist:
             writer.writerow([
-                "Split", "Backbone", "Variant", "Modality",
+                "Split", "Backbone", "Variant", "Modality", "Task", "Error Category",
                 "Sub-Step Precision", "Sub-Step Recall", "Sub-Step F1", "Sub-Step Accuracy", "Sub-Step AUC",
                 "Sub-Step PR AUC",
                 "Step Precision", "Step Recall", "Step F1", "Step Accuracy", "Step AUC", "Step PR AUC"
