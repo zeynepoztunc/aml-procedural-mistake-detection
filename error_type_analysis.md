@@ -63,7 +63,7 @@ This document presents comprehensive results from training error category-specif
 - MLP training is more stable with consistent convergence
 
 ### 2. Step Split Achieves Best Results
-- **Best overall**: TimingError with MLP/Step → **Test F1: 59.74%, AUC: 0.771**
+- **Best overall**: TimingError with MLP/Step -> **Test F1: 59.74%, AUC: 0.771**
 - Step split with threshold=0.6 provides cleaner boundaries for classification
 
 ### 3. Recordings Split Shows Consistency
