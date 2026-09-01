@@ -16,62 +16,59 @@ camera-ready version.
 
 ## Figures
 
-All figures now come from the notebooks. `main.tex` expects **three image files** in
-`figures/`. Names matter; extensions do not (`\graphicspath` and
-`\DeclareGraphicsExtensions` resolve `.pdf`, `.png` or `.jpg`, in `figures/` or beside
-`main.tex`).
+Every figure is a notebook output. `main.tex` expects **three image files** in `figures/`.
+Names matter; extensions do not (`\graphicspath` and `\DeclareGraphicsExtensions` resolve
+`.pdf`, `.png` or `.jpg`, in `figures/` or beside `main.tex`).
 
-### Three of them are already saved as files — no screenshot needed
-
-| Save as | Notebook | Cell (search this first line) | Where the notebook writes it |
-|---|---|---|---|
-| `error_categories.png` | `error_type_analysis.ipynb` | `# Per-category F1 and AUC, both splits.` | `error_category_f1_auc.png` in the Colab working dir |
-| `gnn_comparison.png` | `extension_step4_gnn_classification.ipynb` | `# Visualization - one chart per boundary source` | `extension_data/gnn_comparison.png` |
-
-Download those two, rename to the names in column 1, upload. They are 300-dpi `savefig`
-output, so they are already cleaner than any screenshot of the same cell.
-
-### One needs capturing
-
-| Save as | Notebook | Cell (search this first line) |
+| File | Notebook | Cell (search this first line) |
 |---|---|---|
-| `localization_examples.png` | `extension_step1_actionformer.ipynb` | `import matplotlib.pyplot as plt` |
+| `error_type.png` | `error_type_analysis.ipynb` | `# Per-category F1 and AUC, both splits.` |
+| `step1_1.png`, `step1_3.png` | `extension_step1_actionformer.ipynb` | `import matplotlib.pyplot as plt` |
 
-That cell draws **three separate figures**, one per recording (`20_48`, `25_42`, `29_22`).
-Capture all three as one image, stacked in order, and crop out the `Recording: ... GT steps:
-... Predicted steps: ...` text printed between them — the caption already states those numbers.
+`figures/orig/` holds the uncropped originals of all five captured images. Two of the five
+are not referenced by `main.tex`: `step1_2.png` (the median recording, `25_42`) and
+`step4.png` (the substep-4 comparison chart), both dropped to meet the page limit.
 
-Better than a screenshot, if you want it: add `plt.savefig(f"timeline_{rec_id}.png", dpi=300,
-bbox_inches="tight")` immediately before `plt.show()` inside `compare_boundaries`, re-run that
-one cell, and you get three clean files to stack.
+### The images in `figures/` are cropped
 
-### Optional fourth
+The versions `main.tex` includes are **not** the originals. To save vertical space, the
+matplotlib titles were cropped off the top: 52 px from each timeline and 30 px from
+`error_type.png`, which also removed a slogan-style suptitle that did not belong above a
+caption. `pngcrop.py` (beside this README) did the cropping — a dependency-free PNG row cropper,
+since neither PIL nor ImageMagick is available here. Re-crop from `figures/orig/` if a
+figure needs regenerating; do not crop an already-cropped file twice.
 
-`extension_step4_gnn_classification.ipynb`, the depth-study plot cell, already writes
-`extension_data/gnn_depth_study.png`. It supports the over-smoothing paragraph in the
-Ablations. Add it only if the page count allows; the paragraph stands without it.
+The captions carry the information the cropped titles used to show, so if you restore an
+original, shorten the caption to match.
 
-### What went back to being tables
+### If a figure needs to go back in
 
-Two results have no plotted equivalent in any notebook, so they are tables again:
-`tab:loc` (per-split localization) and `tab:omission` (the omission-free subset). The
-omission-free result is the paper's strongest evidence and there is no notebook cell that
-charts it.
+`step4.png` is the substep-4 comparison chart from the `# Visualization - one chart per
+boundary source` cell, which writes `extension_data/gnn_comparison.png`. It was cut because
+`tab:sub4` carries the same numbers. `extension_data/gnn_depth_study.png` exists too and
+supports the over-smoothing paragraph. Add either only if the page count allows.
+
+### What has no plotted equivalent
+
+`tab:omission`, the omission-free subset, is the paper's strongest single piece of evidence
+and no notebook cell charts it, so it is a table by necessity rather than by choice.
 
 The previously generated vector figures are parked in `figures/unused/` with the scripts
 `make_figures.py` and `make_timeline.py`. Nothing references them.
 
 ## Before submitting
 
-- Fill the author block.
 - **No `\TODO{}` remains.** The macro is still defined in the preamble if you want to flag
   something while editing; delete the definition before the camera-ready.
-- Check the page count. The target is 8 pages excluding references. The omission-free table
-  (`tab:omission`) was added last and is the most likely thing to push it over.
-- The substep-4 numbers come from the run with execution count 13 in
-  `extension_step4_gnn_classification.ipynb`. **Cells 19, 20, 21 and 32 of that notebook still
-  display the previous run** and need re-executing before the notebook is handed in — the report
-  is already on the new numbers.
+- Check the page count. The spec says 8 pages; with the CVPR template that normally means 8
+  excluding references. If it is still over, cut in this order: the substep-4 comparison
+  figure (already removed, `figures/step4.png` is kept in case it goes back), then the
+  qualitative timeline figure (`fig:qualitative` — the prose carries the same point), then
+  `tab:er`'s SlowFast rows.
+- The substep-4 numbers come from the third run of the whole notebook (execution counts 13
+  through 29 of `extension_step4_gnn_classification.ipynb`). Every cell in that notebook is
+  from the same session; the check is that cell 34's `auc, full set` column matches cell 17.
+  Do not mix runs.
 
 ## Where the numbers come from
 
@@ -88,9 +85,15 @@ variant of both:
 - **Step-count correlation**: 0.786 pooled, **0.620** on test.
 
 A third: **substep-4 model rankings under annotated boundaries are not stable across runs.**
-DAGNN scored 79.0 AUC in one run and 81.3 in the next, with the three models spanning only
-0.7 points. The report deliberately claims no ranking there, and says why. Do not "fix" this
-by quoting whichever run makes a model look best.
+Across three runs of the identical configuration and seed, SimplePooling spanned 0.3 AUC
+(80.8, 80.9, 81.1), GraphSAGE 1.0 (79.6, 80.6, 79.7) and DAGNN 3.3 (79.0, 81.3, 82.3) — and
+the best of the three changed between runs. The report deliberately claims no ranking there,
+and says why. Do not "fix" this by quoting whichever run makes a model look best.
+
+Note also that cell 34 of the substep-4 notebook prints the hardcoded line "Every model
+collapses to chance." On the final run GraphSAGE keeps 59.3 AUC on that subset, so the
+report says two of three land at chance instead. The notebook's sentence predates the run;
+the table below it is correct.
 
 ## The handbook
 
