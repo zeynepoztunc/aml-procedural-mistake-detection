@@ -1,0 +1,762 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% AML/DAAI 2025-2026 -- Procedural Mistake Detection on CaptainCook4D
+% Written against the CVPR 2026 submission template.
+% Drop this file into the Overleaf template project (it expects cvpr.sty,
+% ieeenat_fullname.bst and cvpr_eso.sty from that template) and compile.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\documentclass[10pt,twocolumn,letterpaper]{article}
+
+%%%%%%%%% PAPER TYPE -------------------------------------------------------
+% \usepackage{cvpr}              % camera-ready, no page numbers
+\usepackage[pagenumbers]{cvpr}   % preprint
+% \usepackage[review]{cvpr}      % submission: line numbers, needs \paperID below
+
+\usepackage{graphicx}
+% Look for figures both in figures/ and beside main.tex, so the document still
+% compiles if the upload flattens the directory. Extensions are omitted from
+% \includegraphics so either the PDF or the PNG copy is picked up.
+\graphicspath{{figures/}{./}}
+\DeclareGraphicsExtensions{.pdf,.png,.jpg}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric}
+
+% Conference name and year, used by the template.
+% Review mode additionally needs \def\paperID{...} here.
+\def\confName{CVPR}
+\def\confYear{2026}
+
+\definecolor{cvprblue}{rgb}{0.21,0.49,0.74}
+\usepackage[pagebackref,breaklinks,colorlinks,allcolors=cvprblue]{hyperref}
+
+\begin{document}
+
+\title{Analysing the Contribution of Task-Graph Structure to\\
+Procedural Mistake Detection on CaptainCook4D}
+
+\author{%
+  Nadim Aride \quad Emre Elci \quad Zein Alabedin Ismail \quad Zeynep Selcen Oztunc\\
+  Politecnico di Torino
+}
+
+\maketitle
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{abstract}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+We study procedural mistake detection on CaptainCook4D in two settings: step-level
+error recognition, and recipe-level task verification against an annotated task
+graph. For the first we reproduce the V1 (MLP) and V2 (Transformer) baselines,
+add a bidirectional LSTM, extend the pipeline to EgoVLP features, and break the
+task down by error category. For the second we build the full four-stage pipeline
+the assignment describes: an ActionFormer step localizer trained on our own EgoVLP
+features, sequence baselines over step embeddings, Hungarian matching of detected
+steps to task-graph nodes through the EgoVLP text tower, and a graph classifier
+over the realized graph.
+
+Our central result is negative. Under annotated boundaries the graph classifier
+reaches 82.3\% AUC, but all three models fall within \textbf{2.6 AUC of each
+other}, less than the 3.3 points DAGNN alone moves across three runs of the
+identical configuration and seed, and the best of the three changes between runs.
+This holds for DAGNN, the layer designed for directed acyclic graphs, and for a
+no-edge pooling control that never reads an edge. A
+deterministic rule with no features and no training, ``predict incorrect when a
+canonical step is absent'', matches all three on balanced accuracy.
+
+Four independent experiments locate the cause. The pipeline is reading how many
+steps were performed rather than how they were structured. Removing every omission
+error from the test set collapses all three models by \textbf{20--29 AUC}, two of
+them to chance. Swapping annotated boundaries for predicted ones costs the graph
+models 11--16 AUC while costing the sequence models nothing, and we trace that asymmetry
+to a measured property of the detector. Its boundary quality degrades far faster
+out of sample (mean best tIoU $0.891 \rightarrow 0.520$) than its step count
+does.
+\end{abstract}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Introduction}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+Procedural activities --- cooking a recipe, assembling furniture, running a lab
+protocol --- are defined less by their individual actions than by the constraints
+between them. Some steps must precede others, some may be reordered freely, and
+some may be omitted without consequence. A system that understands a procedure
+should therefore be able to say not only \emph{what} happened but whether what
+happened constitutes a valid execution.
+
+CaptainCook4D~\cite{peddi2024captaincook4d} makes this measurable. It provides 384
+egocentric recordings of 24 recipes, 5{,}700 annotated steps of which 1{,}964
+(34.5\%) contain at least one error, a taxonomy of eight error types, and --- the
+part that matters most here --- a hand-authored task graph per recipe encoding the
+partial order over that recipe's steps.
+
+This report covers two tasks. The first is \textbf{supervised error recognition}:
+given the video segment of one step, classify it as correct or incorrect. The
+second is \textbf{task verification}: given a whole recipe video and the recipe's
+task graph, decide whether the execution as a whole was correct. Task verification
+is the more useful formulation and the cheaper one to supervise, since it needs
+only one binary label per recording rather than one per step.
+
+We implement the four-stage pipeline the assignment prescribes
+(Figure~\ref{fig:pipeline}) and report it honestly, including where it does not
+work. Our contributions are:
+
+\begin{enumerate}
+\itemsep0.15em
+\item \textbf{Baselines and a new backbone.} We reproduce V1/V2 on Omnivore and
+SlowFast, add an LSTM variant, extend feature extraction to
+EgoVLP~\cite{lin2022egovlp}, and analyse performance per error category, which
+shows that F1 and AUC \emph{disagree systematically} on rare categories.
+
+\item \textbf{A step localizer trained on our own features.} We train
+ActionFormer~\cite{zhang2022actionformer} on our 1-second EgoVLP features rather
+than using published predictions, which lets us evaluate all 384 recordings under
+a proper split with post-processing selected on validation alone.
+
+\item \textbf{An analysis of what the classifier uses.} Four experiments --- a
+hand rule, a node-feature ablation, a boundary swap and an omission-free subset
+--- locate the signal driving recipe-level verification, run over the whole model
+roster and including DAGNN~\cite{thost2021dagnn}, the layer built for this
+structure.
+
+\item \textbf{A measured account of why detector boundaries hurt the graph but not
+the sequence models}, grounded in a train/test generalization gap we quantify per
+split.
+\end{enumerate}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Related Work}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\paragraph{Mistake detection in procedural video.}
+CaptainCook4D~\cite{peddi2024captaincook4d} introduced the benchmark we use, along
+with the V1/V2/V3 baselines for supervised error recognition. PREGO~\cite{flaborea2024prego}
+addresses the online variant, predicting the next expected step from a symbolic
+model and flagging a mistake when the observation disagrees.
+HiERO~\cite{peirone2025hiero} learns a hierarchy of activity representations from
+egocentric video and shows that reasoning over that hierarchy improves downstream
+procedural tasks. It also provides a route to step segmentation without step
+supervision, an alternative to the supervised localizer we use in Substep 1.
+
+\paragraph{Task graphs.}
+Task graphs compactly encode which orderings of a procedure are valid. They can be
+annotated, as in CaptainCook4D, or learned from demonstrations. Differentiable
+Task Graph Learning~\cite{seminara2024taskgraph} makes the graph itself the object
+of optimisation, and procedure learning from unlabelled egocentric
+video~\cite{bansal2022myview, chowdhury2024opel} recovers key-steps and their
+order without annotation. We use the dataset's annotated graphs throughout, so our
+results isolate what a \emph{correct} graph contributes.
+
+\paragraph{Video backbones.}
+Omnivore~\cite{girdhar2022omnivore} and SlowFast~\cite{feichtenhofer2019slowfast}
+are the two backbones released with CaptainCook4D features. We add
+EgoVLP~\cite{lin2022egovlp}, an egocentric video--language model whose video and
+text towers share an embedding space. That shared space is what makes Substep 3
+possible at all: it lets a detected step be compared directly against the textual
+description of a task-graph node. PerceptionEncoder~\cite{bolya2025perception} and
+ImageBind~\cite{girdhar2023imagebind} share the property.
+
+\paragraph{Graph neural networks on DAGs.}
+GCN~\cite{kipf2017gcn}, GAT~\cite{velickovic2018gat} and
+GraphSAGE~\cite{hamilton2017graphsage} update every node simultaneously from its
+immediate neighbours and are agnostic to any ordering the graph encodes. DAGNN~\cite{thost2021dagnn}
+instead processes nodes in topological order, so a node updates only after all of
+its predecessors have updated within the same layer and a single layer propagates
+along an entire path. It is the natural choice for task graphs, which is why we
+treat it as the model to beat rather than one option among many. Stacking
+neighbourhood-averaging layers is known to over-smooth~\cite{li2018deeper}, which
+we test directly.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Method}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  node distance=3.2mm,
+  box/.style={draw, rounded corners=1.6pt, align=center, font=\scriptsize,
+              inner sep=2.6pt, text width=0.86\linewidth, fill=blue!4},
+  arr/.style={-{Latex[length=1.6mm]}, thick, draw=black!55}
+]
+\node[box] (v)  {Egocentric recipe video $\rightarrow$ EgoVLP features,\\1\,s window / 1\,s stride, $256$-d};
+\node[box, below=of v] (s1) {\textbf{Substep 1} --- ActionFormer localization\\ $\rightarrow$ segments $(t_s, t_e)$, mean-pooled into step embeddings};
+\node[box, below=of s1] (s2) {\textbf{Substep 2} --- sequence verifiers\\ (MLP / Transformer / LSTM) over the step sequence};
+\node[box, below=of s1, yshift=-13mm] (s3) {\textbf{Substep 3} --- EgoVLP text encoder over task-graph\\ nodes; Hungarian matching of steps to nodes};
+\node[box, below=of s3] (s4) {\textbf{Substep 4} --- graph classifier over the realized graph\\ (SimplePooling / GraphSAGE / DAGNN)};
+\node[box, below=of s4, fill=green!5] (out) {correct / incorrect execution};
+
+\draw[arr] (v) -- (s1);
+\draw[arr] (s1) -- (s2);
+\draw[arr] (s2) -- (s3);
+\draw[arr] (s3) -- (s4);
+\draw[arr] (s4) -- (out);
+\end{tikzpicture}
+\caption{The task-verification pipeline. Substep 2 is a graph-free control that
+consumes the same step embeddings as Substep 4, so the comparison between the two
+isolates the contribution of the task graph. Everything downstream of
+Substep 1 is run under \emph{two} boundary sources --- the annotations and the
+trained detector --- on the same 384 recordings with the same labels.}
+\label{fig:pipeline}
+\end{figure}
+
+\subsection{Step-level error recognition}
+
+\paragraph{Baselines.} V1 pools the sub-segment features of a step with an MLP
+head. V2 combines them with a Transformer encoder layer before classification. We
+keep the official hyperparameters (\texttt{pos\_weight} 2.5, weight decay
+$10^{-3}$, batch size 32, decision threshold 0.6 on the \emph{step} split and 0.5
+on \emph{recordings}) so the comparison against the published numbers is
+meaningful. As a third baseline we add a \textbf{bidirectional LSTM} (hidden 512)
+over the sub-segment sequence, which the assignment suggests as a natural
+alternative to attention.
+
+\paragraph{A new backbone.} We extend the feature extraction code to
+EgoVLP~\cite{lin2022egovlp}, producing $256$-d features. The time base is
+load-bearing: the dataloader indexes feature rows with raw annotation timestamps in
+seconds, so any stride other than 1\,s silently yields empty slices for the later
+steps of a recording. We assert the time base rather than substituting a default.
+
+\subsection{Substep 1: step localization}
+
+We train ActionFormer~\cite{zhang2022actionformer} on our own EgoVLP features,
+using the official recordings split (213 train / 62 validation / 109 test) over
+353 step classes, with the configuration's frame rate set to match the 1\,s
+feature rate. A single checkpoint is selected and used for every downstream
+result.
+
+Raw ActionFormer output is dense. We post-process with a score threshold,
+class-agnostic temporal NMS and a minimum-duration filter, selecting all three
+\textbf{on the validation split only}. The choice is then frozen and the test
+split scored once. Each detected segment becomes a step embedding by mean-pooling
+the feature rows inside its boundaries.
+
+We export both annotated and predicted boundaries for all 384 recordings and run
+every downstream substep on both. The annotation lists only the steps actually
+performed, so it supplies the step count directly rather than requiring a model to
+infer it; comparing the two sources on identical recordings and labels isolates
+that effect.
+
+\subsection{Substep 2: sequence verification baselines}
+
+Three models --- MLP, Transformer and bidirectional LSTM --- consume the sequence
+of step embeddings for a recording and emit one binary label. They have no access
+to the task graph, and exist to measure how much of Substep 4's performance
+requires a graph at all.
+
+\subsection{Substep 3: task-graph encoding and matching}
+
+The 24 annotated task graphs contain 353 nodes and 369 edges in total. A linear
+chain over the same nodes would have 329, so the graphs encode genuine branching
+rather than a relabelled sequence. Node descriptions are encoded with the
+\emph{EgoVLP text tower}, which shares an embedding space with the video tower
+that produced the step embeddings. Detected steps are then matched to nodes with
+the Hungarian algorithm on cosine similarity, one node per step at most.
+
+The substep assumes the two towers are aligned, so we measure that alignment
+directly (\S\ref{sec:matching}).
+
+Matching alone discards execution order: visual features are written onto canonical
+nodes and the canonical edges never change, so ``A then B'' and ``B then A'' realize
+identically. Since Order Error is the dataset's largest tag (795 instances), each
+matched node additionally carries its position in the observed sequence, its segment
+boundaries, and a count of canonical edges its position contradicts.
+
+\subsection{Substep 4: classifying the realized graph}
+
+We compare three models chosen to span a specific axis rather than to fill a
+leaderboard:
+
+\begin{itemize}
+\itemsep0.15em
+\item \textbf{SimplePooling} --- identical node features, \emph{no edges at all}.
+The control.
+\item \textbf{GraphSAGE}~\cite{hamilton2017graphsage} --- conventional
+neighbourhood message passing, keeping a node's own transformed state separate from
+the neighbour aggregate.
+\item \textbf{DAGNN}~\cite{thost2021dagnn} --- topological-order processing with
+attention over predecessors and a GRU update. The only model that consumes edge
+\emph{direction}.
+\end{itemize}
+
+The learnable projection the assignment asks for lives here rather than in Substep
+3, because it can only be trained where there is a loss: a projector instantiated
+in Substep 3 would apply a fixed random transform forever. It fuses the visual and
+text blocks and passes the order channels through unchanged.
+
+\subsection{Evaluation protocol}
+\label{sec:protocol}
+
+Recipe-level verification has 384 samples across 24 recipes, so protocol choices
+dominate. We use \textbf{nested leave-one-recipe-out}: one recipe is held out for
+test, four more are held out from the remaining 23 for epoch selection, and no
+metric is ever selected on the test fold. Validation is split \emph{by recipe},
+because recordings of the same recipe are near-duplicates and splitting by
+recording would make early stopping optimistic.
+
+We report \textbf{pooled} metrics --- all fold predictions concatenated and scored
+once --- rather than a mean over folds, since a fold holds 3--6 recordings and its
+F1 can take only a handful of discrete values. Per-fold spread is kept as a
+dispersion diagnostic.
+
+Finally, 57.29\% of recordings are labelled incorrect, so a constant ``incorrect''
+predictor already scores 72.8 F1. \textbf{We read balanced accuracy and AUC}, and
+every table carries the majority row.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Experiments}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsection{Step-level error recognition}
+
+\begin{table}[t]
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llccc}
+\toprule
+Backbone & Model & Split & F1 & AUC \\
+\midrule
+\multirow{6}{*}{Omnivore}
+ & V1 (MLP)         & step & \textbf{55.50} & \textbf{0.816} \\
+ & V2 (Transformer) & step & 44.19 & 0.708 \\
+ & LSTM (ours)      & step & 49.64 & 0.769 \\
+ & V1 (MLP)         & rec. & \textbf{55.77} & \textbf{0.640} \\
+ & V2 (Transformer) & rec. & 54.00 & 0.595 \\
+ & LSTM (ours)      & rec. & 47.50 & 0.610 \\
+\midrule
+\multirow{2}{*}{SlowFast}
+ & LSTM (ours)      & step & 51.05 & 0.683 \\
+ & LSTM (ours)      & rec. & 55.53 & 0.590 \\
+\midrule
+\multirow{4}{*}{EgoVLP}
+ & V1 (MLP)         & step & 51.13 & 0.698 \\
+ & V2 (Transformer) & step & \textbf{51.44} & \textbf{0.700} \\
+ & V1 (MLP)         & rec. & \textbf{55.12} & \textbf{0.631} \\
+ & V2 (Transformer) & rec. & 46.74 & 0.615 \\
+\bottomrule
+\end{tabular}
+\caption{Supervised error recognition. Omnivore and SlowFast rows are final-epoch
+test metrics. EgoVLP rows are test metrics from checkpoints selected on validation
+AUC. All-positive prediction scores F1 51.3 on this task, which two SlowFast
+configurations fail to beat.}
+\label{tab:er}
+\end{table}
+
+Table~\ref{tab:er} reports supervised error recognition.
+
+\paragraph{Comparison with the published baselines.} For Omnivore on the step
+split the CaptainCook4D paper reports MLP F1 24.26 and Transformer F1 55.39. We
+measure 55.50 and 44.19, approximately the two models exchanged. The AUCs are much
+closer, 0.816 and 0.708 against 0.757 for both. We report our own measurements and
+treat the published F1 column as not reproduced. The most likely cause is the
+operating point. Our MLP sits at 68.64\% precision and 46.59\% recall, and a
+different decision threshold moves F1 a long way while barely moving AUC.
+
+\paragraph{The LSTM variant.} No F1 ordering here is meaningful, because the
+Omnivore runs are not converged: Omnivore/step moves from 59.64 to 49.64 F1 between
+its final two epochs while its AUC moves 0.006, so any single-epoch Omnivore F1 is
+a sample from a 7--10 point band. On AUC the MLP leads on both splits, and that is
+the ordering we report. With 3{,}752 training steps and features already pooled per
+step, little sequential structure remains for recurrence to exploit.
+
+\paragraph{SlowFast's operating point.} SlowFast reaches the two highest F1 scores
+in the table at accuracies of 47.62\% and 48.44\% --- below chance on a
+34.5\%-positive task --- with recall of 87.55\% and 89.63\%. It predicts positive
+almost everywhere and has the lowest AUC of the three backbones. The F1 column
+alone would rank it first.
+
+\paragraph{The EgoVLP backbone.} Our EgoVLP features reach 0.698 and 0.700 AUC on
+the step split against Omnivore's 0.816. Omnivore features were released with the
+dataset and extracted with the authors' own pipeline, whereas ours are a
+re-implementation, so this ordering is expected. EgoVLP is used downstream not for
+its error-recognition accuracy but for its shared video--text space, which the
+other two backbones do not provide.
+
+\subsection{Error recognition by category}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.76\textwidth]{error_type}
+\caption{Per-category error recognition for V1 (MLP) and V2 (Transformer). Left:
+F1 at the fixed threshold of 0.6. Right: AUC, dashed line at chance. Top row is
+the step split, bottom the recordings split, categories ordered by tag count. Bar
+heights fall with the tag count on the left and do not on the right.
+TemperatureError has no step-split F1 bar because both variants score exactly
+0.00, which is also the all-negative predictor's score everywhere.}
+\label{fig:category}
+\end{figure*}
+
+Training one binary classifier per error tag turns the task from a 34.5\%-positive
+problem into a 1--9\%-positive one. Across the twenty runs (5 categories $\times$ 2
+variants $\times$ 2 splits) F1 ranges 0.00--38.27 while AUC ranges 0.578--0.916,
+and seven of the twenty score below 25 F1 while exceeding 0.75 AUC.
+Figure~\ref{fig:category} shows both metrics for both variants on both splits,
+with categories ordered by tag count. F1 rises with the base rate and AUC does
+not.
+
+TemperatureError is the extreme case, with 66 positives in 5{,}700 steps, F1
+exactly 0.00 on both step-split variants, and AUC 0.739 and 0.702. The models order
+the steps correctly and never cross the threshold, which is all a fixed 0.6 can
+produce on a 1.2\%-positive task.
+
+The two metrics therefore give near-opposite difficulty rankings. By mean AUC the
+order is Timing (0.821), Temperature (0.813), Measurement (0.803), Technique
+(0.668), Preparation (0.638); by mean F1 it is close to reversed. Our
+pre-registered hypothesis, that TimingError would stand out because timing mistakes
+have a temporal signature surviving pooling, is confirmed on AUC and refuted on F1:
+first of five by AUC on only 177 tags, third by F1. We take the AUC ranking to be
+the informative one.
+
+Two caveats belong with this. Rare categories carry wide error bars ---
+TemperatureError has roughly 8 positive test steps, so one flipped prediction moves
+F1 several points --- and Order Error, the dataset's largest tag, has no
+per-category run at all, because ordering is not a property of a single step. That
+gap is what the task-graph formulation addresses.
+
+\subsection{Substep 1: localization quality}
+\label{sec:loc}
+
+Validation mAP over the 353 step classes averages 36.41\%. Post-processing selected
+on validation (score $0.14$, NMS tIoU $0.20$, minimum duration $5.0$\,s) gives, on
+the 109 held-out test recordings, segment-level F1 of $0.719$ at tIoU$\geq$0.3,
+$0.617$ at $0.5$ and $0.411$ at $0.7$.
+
+The measurement that matters downstream is how these degrade out of sample. Mean
+best tIoU --- the tIoU of the best-overlapping prediction, averaged over annotated
+segments --- falls from 0.891 on the 213 training recordings to 0.539 on the 62
+validation and 0.520 on the 109 test recordings, a factor of $1.7$, while count MAE
+rises only from 1.92 to 2.81 to 3.28 and the step-count correlation follows at
+0.930, 0.725 and 0.620. Boundary quality and step-count quality therefore degrade at
+substantially different rates. Validation reproduces the test figure even though
+post-processing was tuned on validation, so this is generalization rather than a
+test-split peculiarity.
+
+The direction of the count error also reverses. In sample the detector
+over-segments, at $+1.70$ steps; out of sample it under-segments, at $-1.03$ on
+validation and $-1.42$ on test, with 65 of 109 test recordings under-segmented
+against 31 over-segmented. An under-segmenting detector produces realized graphs
+with missing nodes, which \S\ref{sec:shortcut} shows to be the signal the pipeline
+uses.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.74\textwidth]{step1_1}\\
+\includegraphics[width=0.74\textwidth]{step1_3}
+\caption{Annotated and predicted step spans for the held-out test recordings at the
+lower and upper quartile of signed step-count error: \texttt{20\_48} ($-4$ steps,
+top) and \texttt{29\_22} ($+1$, bottom). Each panel has its own time axis.
+Predictions track the coarse structure while drifting at boundaries, merging
+adjacent steps and fragmenting long ones.}
+\label{fig:qualitative}
+\end{figure*}
+
+Figure~\ref{fig:qualitative} shows what those numbers look like on individual
+recordings. The detector recovers the coarse temporal layout in both cases, and the
+errors are boundary drift, adjacent steps merged, and single steps fragmented,
+rather than steps missed entirely --- the behaviour that keeps the count roughly
+right while per-step overlap falls.
+
+\subsection{Substep 2: verification without a graph}
+
+\begin{table}[t]
+\centering\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{llccc}
+\toprule
+Boundaries & Model & Bal. Acc & F1 & AUC \\
+\midrule
+\multirow{3}{*}{Annotated}
+ & MLP         & 56.5 & 62.4 & 58.0 \\
+ & Transformer & 58.2 & 63.6 & 59.3 \\
+ & LSTM        & 58.3 & 62.6 & 59.6 \\
+\midrule
+\multirow{3}{*}{ActionFormer}
+ & MLP         & 56.0 & 62.8 & 62.2 \\
+ & Transformer & 58.4 & 63.1 & 62.6 \\
+ & LSTM        & \textbf{60.9} & \textbf{64.9} & \textbf{64.1} \\
+\midrule
+\multicolumn{2}{l}{Majority baseline} & 50.0 & 72.8 & 50.0 \\
+\bottomrule
+\end{tabular}
+\caption{Task verification from the step-embedding sequence alone, pooled nested
+LORO over 384 recordings. Every model falls below the majority F1.}
+\label{tab:sub2}
+\end{table}
+
+Table~\ref{tab:sub2} shows that verification from a flat sequence of step
+embeddings barely works: all six configurations sit below the majority F1 of 72.8,
+the best AUC is 64.1, and validation loss bottoms out within a few epochs in most
+folds. These models are the graph-free control that gives Substep 4 its meaning, so
+the low absolute numbers are informative rather than a failed experiment. One detail
+matters for \S\ref{sec:shortcut}: predicted boundaries make these models
+\emph{better}, not worse.
+
+\subsection{Substep 3: matching quality}
+\label{sec:matching}
+
+Everything downstream depends on EgoVLP's video and text towers occupying the same
+space, so we measure it. Over 100 recordings and 1{,}410 step pairs, video-to-text
+retrieval of a step's own description reaches \textbf{26.17\% top-1 against a
+7.09\% chance rate}, with correct pairs scoring $0.328$ cosine against $0.221$ for
+mismatched pairs (margin $+0.107$). The alignment is therefore real at
+$3.7\times$ chance, and weak enough to bound what the matching can contribute.
+
+The match ratio is \emph{not} a measure of matching quality --- Hungarian pads the
+cost matrix and always returns $\min(\text{steps}, \text{nodes})$ pairs --- so we
+score the assignment directly. Over 5{,}358 assignments on 384 recordings,
+\textbf{Hungarian assignment accuracy is 35.91\%}, against 27.12\% for
+unconstrained top-1 retrieval and 7.46\% chance. The one-to-one constraint helps,
+but roughly two matches in three are still wrong, and every later substep inherits
+that error.
+
+One case illustrates the failure mode: in recording \texttt{1\_19} the step
+\emph{``Microwave just until cheese melts''} matched \emph{``Continue to Microwave
+for 15-30 more sec''} at $0.615$ cosine, above the $0.521$ of the exact
+string-to-itself match. Near-duplicate steps within a recipe bound any encoder's
+accuracy here.
+
+Mean match similarity does not separate correct from incorrect executions, at 0.367
+against 0.374 and in the wrong direction. This follows from the error taxonomy
+rather than indicating a defect: CaptainCook4D errors are mostly wrong temperature,
+wrong quantity or a skipped step, none of which change how much a \emph{performed}
+step resembles its description. What remains usable is the per-node features and the
+unmatched-node mask.
+
+\subsection{Substep 4: classifying the realized graph}
+\label{sec:sub4}
+
+\begin{table}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{llccc}
+\toprule
+Boundaries & Model & Bal. Acc & AUC & F1 \\
+\midrule
+\multirow{3}{*}{Annotated}
+ & SimplePooling (no edges) & 75.7 & 81.1 & 73.7 \\
+ & GraphSAGE                & \textbf{76.6} & 79.7 & 75.0 \\
+ & DAGNN                    & \textbf{76.6} & \textbf{82.3} & \textbf{75.1} \\
+\midrule
+\multirow{3}{*}{ActionFormer}
+ & SimplePooling (no edges) & \textbf{65.4} & \textbf{70.2} & \textbf{66.0} \\
+ & GraphSAGE                & 62.4 & 66.6 & 61.5 \\
+ & DAGNN                    & 61.1 & 66.6 & 63.8 \\
+\midrule
+\multicolumn{2}{l}{Majority baseline} & 50.0 & 50.0 & 72.8 \\
+\multicolumn{2}{l}{Hand rule: ``a step is absent''} & \textbf{79.0} & 79.1 & 73.7 \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Graph classification, pooled nested LORO over 384 recordings. The hand
+rule uses no features, no training and no graph edges. Under annotated boundaries
+the three models span 2.6 AUC, less than DAGNN moves on its own between runs
+(\S\ref{sec:noise}), so that column contains no ranking. Under predicted
+boundaries the no-edge control leads by 3.6, and led in all three runs we
+recorded.}
+\label{tab:sub4}
+\end{table}
+
+\paragraph{Annotated boundaries.} The three models span 81.1, 79.7 and 82.3 AUC,
+a range of 2.6 points. Repeating the identical configuration and seed moved DAGNN
+alone across 79.0, 81.3 and 82.3 over three runs, a range of 3.3, so the spread
+between models is smaller than the variation within one of them. The best of the
+three also changes between runs, from the no-edge control to DAGNN. No ranking can
+be read from this column. A
+no-edge pooling control, a conventional message-passing layer and a layer built
+for directed acyclic graphs are indistinguishable on this data, and message
+passing over the task graph therefore contributes nothing measurable.
+
+\paragraph{Predicted boundaries.} Here a ranking does appear. SimplePooling leads
+both graph models by 3.6 AUC and by 3.0 and 4.3 balanced accuracy. Each margin
+alone sits close to the noise floor, but the ordering held in all three runs, with
+the no-edge control ahead by 3.1--4.6 AUC every time. Replication rather than
+margin is what makes it readable: consuming the graph costs accuracy once the
+boundaries are predicted.
+
+\paragraph{The deterministic rule.} ``Predict incorrect when a canonical step is
+absent from the match'' reaches 79.1 AUC and 79.0 balanced accuracy using no video,
+no encoder, no graph and no training --- above all three learned models on balanced
+accuracy, which score 75.7, 76.6 and 76.6. In total 130 of the 384 recordings are
+missing at least one canonical step. The rule is deterministic, so it has no folds
+and no variance.
+
+\subsection{Locating the signal}
+\label{sec:shortcut}
+
+Hungarian matching assigns $\min(\text{steps},\text{nodes})$ pairs, so the
+fraction of matched nodes equals the fraction of the recipe's canonical steps that
+the recording contains. CaptainCook4D's taxonomy includes a \textbf{Missing Step}
+tag with 285 occurrences, and recordings carrying that error are identifiable by
+counting alone. The feature is available at test time, so this is a shortcut
+admitted by the data rather than a train/test leak. Four experiments test whether
+it accounts for the scores in Table~\ref{tab:sub4}.
+
+\paragraph{(i) A rule with no parameters.} The rule above wins the
+balanced-accuracy column outright, against 75.7--76.6 for the learned models.
+
+\paragraph{(ii) Node-feature ablation.} Replacing all node features with only the
+matched/unmatched mask gives 79.0 balanced accuracy and 77.3 AUC, against 76.8 and
+80.2 for the full feature set. Removing all 512 dimensions of visual and text
+content therefore costs 2.9 AUC and gains 2.2 balanced accuracy. Removing the count
+channels instead (\emph{no\_count}) gives 75.9 and 82.9, and removing the order
+channels (\emph{no\_order}) 77.9 and 80.6. Neither removal hurts, because the
+matched/unmatched mask still carries the count those channels summarised.
+
+\paragraph{(iii) Boundary source.} Substep 1 exports both sources for the same 384
+recordings with the same labels, making this a controlled comparison. Moving from
+annotated to predicted boundaries costs the graph models \textbf{10.9, 13.1 and
+15.7 AUC} for SimplePooling, GraphSAGE and DAGNN, while the sequence models of
+Substep 2 are unaffected or slightly better (Table~\ref{tab:sub2}). The cost again
+orders by how much of the graph each model consumes.
+
+A sequence model never computes how many canonical steps are present, so it neither
+gains from annotated boundaries nor suffers without them. The graph pipeline does
+compute it, and \S\ref{sec:loc} supplies the mechanism: the detector under-segments
+out of sample, and to the matcher an under-segmented recording is indistinguishable
+from one with a skipped step.
+
+\paragraph{(iv) The omission-free subset.} Restricting to the \textbf{244
+recordings with no Missing Step error} removes the shortcut by construction. Every
+remaining positive is an Order, Technique, Preparation, Measurement, Timing or
+Temperature error, none of which change how many steps were performed. The subset
+is 32.8\% positive and the hand rule falls to 52.2\% AUC on it, which confirms it
+is built correctly.
+
+\begin{table}[t]
+\centering\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lccc}
+\toprule
+Model & Bal. Acc & AUC & AUC, full set \\
+\midrule
+SimplePooling & 53.5 & 55.0 & 81.1 \\
+GraphSAGE     & 58.8 & 59.3 & 79.7 \\
+DAGNN         & 50.0 & 53.3 & 82.3 \\
+\midrule
+\multicolumn{2}{l}{Hand rule} & 52.2 & 79.1 \\
+\bottomrule
+\end{tabular}
+\caption{Omission-free subset, 244 recordings. Every model loses 20--29 AUC.
+SimplePooling and DAGNN land at chance, DAGNN at exactly 50.0 balanced accuracy.
+GraphSAGE keeps a 9-point margin, still 20 points below its full-set score.}
+\label{tab:omission}
+\end{table}
+
+Table~\ref{tab:omission} shows the outcome. All three models lose between 20.4 and
+29.0 AUC, including the two that beat the hand rule on the full set. SimplePooling
+and DAGNN land at chance; GraphSAGE retains 59.3 AUC, above the rule's 52.2 but
+20.4 below its own full-set score, so what survives is small beside what the
+shortcut supplied. What separates correct from incorrect recordings in
+Table~\ref{tab:sub4} is therefore the step count, not the visual features, the text
+encoder or the matching. Running the whole roster addresses the objection that a
+different layer might have survived.
+
+\paragraph{Summary.} Recipe-level error detection on CaptainCook4D reduces, in this
+pipeline, to whether every canonical step occurred. The EgoVLP embeddings, the text
+encoder, the Hungarian matching and the graph structure add little measurable
+beyond that, under both boundary sources and with the dataset's annotated
+topology.
+
+\subsection{Ablations}
+
+\paragraph{The learnable projection.} With identical folds and seeds, replacing
+the fixed $0.5/0.5$ average of visual and text features with the learnable
+projection the assignment specifies moves GraphSAGE from 69.64 to 75.88 balanced
+accuracy and from 75.37 to 80.25 AUC, gains of $+6.24$ and $+4.88$. Both clear the
+noise floor. F1 is the more volatile column at this fold count and should not be
+quoted alone.
+
+\paragraph{Depth.} Over 2, 4, 6 and 8 layers GraphSAGE scores 81.50, 77.75, 76.17
+and 73.60 AUC, falling monotonically for a total of $-7.90$. This is consistent with
+over-smoothing on graphs of 12--14 nodes, where two layers already span most of
+the diameter. GraphSAGE is the only model in the roster for which the study is
+defined and affordable. SimplePooling stacks no message-passing layers to begin
+with, so it has no depth to vary, and DAGNN's runtime scales with layers $\times$
+topological depth, which at depth 8 on graphs 19 levels deep is prohibitive.
+
+\paragraph{Edge direction.} Symmetrising the DAG's edges changes GraphSAGE by
+$-0.6$ AUC, from 81.2 directed to 80.6 undirected, on 15.3 versus 30.6 edges per
+graph. Because GraphSAGE keeps a separate self-pathway, insensitivity is the
+expected outcome for this layer, so we report it as a control confirming the
+symmetrisation choice does not drive the main table. Whether procedural order is
+usable at all is the separate question DAGNN answers in Table~\ref{tab:sub4}.
+
+\paragraph{Run-to-run noise.} \label{sec:noise}
+A nine-setting sweep over learning rate and hidden size spans 6.9 AUC points
+(77.3--84.1). Separately, re-running the identical configuration and seed moves the
+pooled AUC, because the sparse scatter operations in the convolutions are not
+deterministic on GPU: summation over a node's incoming edges is ordered by CUDA
+atomics, so gradients differ in the last bits and the runs diverge. The drift tracks
+how much scatter a model performs. Across three runs SimplePooling, which never
+scatters over edges, spanned 0.3 AUC (80.8, 80.9, 81.1); GraphSAGE spanned 1.0
+(79.6, 80.6, 79.7); and DAGNN, one attention-plus-GRU sweep per topological level,
+spanned 3.3 (79.0, 81.3, 82.3). We therefore treat \textbf{$\approx$3 AUC points} as
+the floor below which differences should not be interpreted, and prefer orderings
+that replicate across runs to margins that clear it once. The reported configuration
+(lr $10^{-3}$, hidden 128) was fixed before any test fold was scored and is not the
+best of the nine.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Discussion and Limitations}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\paragraph{Sources of the negative result.} Three factors compound. The matching is
+weak, at 35.91\% assignment accuracy, so roughly two node assignments in three are
+wrong and the features written onto the graph are largely misplaced. The graphs are
+small, about 13 nodes and 15 edges each, leaving little topology to exploit. Most
+fundamentally, the label is dominated by an error type, Missing Step, fully
+determined by node presence, which a pooling model reads without edges.
+
+\paragraph{Scope of the claim.} We do not conclude that procedural structure is
+uninformative in general, only that this pipeline on this dataset extracts almost
+all of its signal from step presence. A stronger matcher, or a label distribution
+not dominated by omissions, could change the answer, and the order-violation
+statistics suggest the raw material is present: 39.3\% of realized edges are
+violated under annotated boundaries, and 98.4\% of recordings violate at least
+one.
+
+\paragraph{Limitations.} (a) The omission-free confirmation runs on 244 of 384
+recordings, so its folds are smaller and noisier than the main table's, though the
+20--29 point drop it measures is an order of magnitude larger than that noise.
+(b) All recipe-level numbers rest on 384 samples with a 3-point noise floor, and
+the differences we call real clear it by modest margins. (c) Our EgoVLP features
+are a re-implementation whose error-recognition AUC sits below the released
+Omnivore features, so a better video--text model would raise the matching accuracy
+that bounds Substep 3. (d) We report a single seed per configuration, with repeated
+runs used only to measure the noise floor.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Conclusion}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+We built the full task-verification pipeline for CaptainCook4D --- ActionFormer
+localization on our own EgoVLP features, sequence baselines, EgoVLP-text task-graph
+encoding with Hungarian matching, and a graph classifier --- and evaluated it under
+a protocol that selects nothing on the test fold.
+
+Our main finding is that a graph classifier reaching 82.3\% AUC on this benchmark
+is largely counting steps. A no-edge control, a conventional message-passing layer
+and a layer built for directed acyclic graphs land within 2.6 AUC of one another,
+less than one of them moves between runs; a zero-parameter rule beats all three on
+balanced accuracy; and removing the one error type that changes the step count
+drops every model by 20--29 points.
+
+Two consequences follow. Any task-verification result on CaptainCook4D should be
+reported against a no-edge control and against the step-count rule, since both are
+cheap and either can account for most of a headline score. And the errors that
+remain once omissions are excluded --- wrong temperature, wrong quantity, wrong
+technique --- are not visible in pooled one-second clip embeddings. Progress on them
+will need finer temporal resolution and object-state reasoning rather than a larger
+graph model, while the benchmark's own order-violation statistics indicate the
+structural signal is there for a method able to use it.
+
+{\small
+\bibliographystyle{ieeenat_fullname}
+\bibliography{main}
+}
+
+\end{document}

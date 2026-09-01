@@ -19,6 +19,8 @@ def fetch_input_dim(config, decoder=False):
         return 400
     elif config.backbone == const.RESNET3D:
         return 400
+    elif config.backbone == const.EGOVLP:
+        return 256  # EgoVLP outputs 256-dim aligned embeddings
     elif config.backbone == const.IMAGEBIND:
         if decoder is True:
             return 1024

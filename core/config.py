@@ -9,7 +9,7 @@ class Config(object):
         """
         Defaults
         """
-        self.backbone = "omnivore"
+        self.backbone = "egovlp"
         self.modality = "video"
         self.phase = "train"
         self.segment_length = 1
@@ -61,7 +61,7 @@ class Config(object):
         parser.add_argument("--ckpt", type=str, default=None, help="checkpoint path")
         parser.add_argument("--seed", type=int, default=42, help="random seed (default: 1000)")
 
-        parser.add_argument("--backbone", type=str, default=const.OMNIVORE, help="backbone model")
+        parser.add_argument("--backbone", type=str, default=const.EGOVLP, help="backbone model")
         parser.add_argument("--ckpt_directory", type=str, default="/data/rohith/captain_cook/checkpoints", help="checkpoint directory")
         parser.add_argument("--split", type=str, default=const.RECORDINGS_SPLIT, help="split")
         parser.add_argument("--variant", type=str, default=const.TRANSFORMER_VARIANT, help="variant")
@@ -69,6 +69,8 @@ class Config(object):
         parser.add_argument("--task_name", type=str, default=const.ERROR_RECOGNITION, help="task name")
         parser.add_argument("--error_category", type=str, help="error category")
         parser.add_argument("--modality", type=str, nargs="+", default=[const.VIDEO], help="audio")
+        parser.add_argument("--pos_weight", type=float, default=2.5, help="positive class weight for loss function")
+        parser.add_argument("--threshold", type=float, default=0.6, help="classification threshold (0.6 for step split, 0.5 for recordings split)")
 
         return parser
 

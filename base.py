@@ -16,6 +16,7 @@ from tqdm import tqdm
 
 from core.models.blocks import fetch_input_dim, MLP
 from core.models.er_former import ErFormer
+from core.models.lstm import LSTM
 from dataloader.CaptainCookStepDataset import collate_fn, CaptainCookStepDataset
 from dataloader.CaptainCookSubStepDataset import CaptainCookSubStepDataset
 
@@ -25,11 +26,16 @@ def fetch_model_name(config):
         return fetch_model_name_ecr(config)
     elif config.task_name in  [const.EARLY_ERROR_RECOGNITION, const.ERROR_RECOGNITION]:
         if config.model_name is None:
-            if config.backbone in [const.RESNET3D, const.X3D, const.SLOWFAST, const.OMNIVORE]:
+            if config.backbone in [const.RESNET3D, const.X3D, const.SLOWFAST, const.OMNIVORE,
+                                   const.EGOVLP]:
                 config.model_name = f"{config.task_name}_{config.split}_{config.backbone}_{config.variant}_{config.modality[0]}"
             elif config.backbone == const.IMAGEBIND:
                 combined_modality_name = '_'.join(config.modality)
                 config.model_name = f"{config.task_name}_{config.split}_{config.backbone}_{config.variant}_{combined_modality_name}"
+    assert config.model_name is not None, (
+        f"No model_name rule for backbone {config.backbone!r} in fetch_model_name; "
+        f"add it to one of the branches above."
+    )
     return config.model_name
 
 
@@ -44,12 +50,15 @@ def fetch_model_name_ecr(config):
 def fetch_model(config):
     model = None
     if config.variant == const.MLP_VARIANT:
-        if config.backbone in [const.OMNIVORE, const.RESNET3D, const.X3D, const.SLOWFAST, const.IMAGEBIND]:
+        if config.backbone in [const.OMNIVORE, const.RESNET3D, const.X3D, const.SLOWFAST, const.IMAGEBIND, const.EGOVLP]:
             input_dim = fetch_input_dim(config)
             model = MLP(input_dim, 512, 1)
     elif config.variant == const.TRANSFORMER_VARIANT:
-        if config.backbone in [const.OMNIVORE, const.RESNET3D, const.X3D, const.SLOWFAST, const.IMAGEBIND]:
+        if config.backbone in [const.OMNIVORE, const.RESNET3D, const.X3D, const.SLOWFAST, const.IMAGEBIND, const.EGOVLP]:
             model = ErFormer(config)
+    elif config.variant == const.LSTM_VARIANT:
+        if config.backbone in [const.OMNIVORE, const.RESNET3D, const.X3D, const.SLOWFAST, const.IMAGEBIND, const.EGOVLP]:
+            model = LSTM(config)
 
     assert model is not None, f"Model not found for variant: {config.variant} and backbone: {config.backbone}"
     model.to(config.device)
@@ -64,7 +73,8 @@ def convert_and_round(value):
 
 
 def collate_stats(config, sub_step_metrics, step_metrics):
-    collated_stats = [config.split, config.backbone, config.variant, config.modality]
+    collated_stats = [config.split, config.backbone, config.variant, config.modality,
+                      config.task_name, config.error_category]
     for metric in [const.PRECISION, const.RECALL, const.F1, const.ACCURACY, const.AUC, const.PR_AUC]:
         collated_stats.append(convert_and_round(sub_step_metrics[metric]))
     for metric in [const.PRECISION, const.RECALL, const.F1, const.ACCURACY, const.AUC, const.PR_AUC]:
@@ -90,7 +100,7 @@ def save_results_to_csv(config, sub_step_metrics, step_metrics, step_normalizati
         writer = csv.writer(activity_idx_step_idx_annotation_csv_file, quoting=csv.QUOTE_NONNUMERIC)
         if not file_exist:
             writer.writerow([
-                "Split", "Backbone", "Variant", "Modality",
+                "Split", "Backbone", "Variant", "Modality", "Task", "Error Category",
                 "Sub-Step Precision", "Sub-Step Recall", "Sub-Step F1", "Sub-Step Accuracy", "Sub-Step AUC",
                 "Sub-Step PR AUC",
                 "Step Precision", "Step Recall", "Step F1", "Step Accuracy", "Step AUC", "Step PR AUC"
@@ -153,10 +163,14 @@ def train_model_base(train_loader, val_loader, config, test_loader=None):
     model = fetch_model(config)
     device = config.device
     optimizer = optim.Adam(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([2.5], dtype=torch.float32).to(device))
+    
+    # Use pos_weight from config if available, else default to 2.5
+    pos_weight_val = getattr(config, 'pos_weight', 2.5)
+    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([pos_weight_val], dtype=torch.float32).to(device))
+    
     scheduler = ReduceLROnPlateau(
         optimizer, mode='max',
-        factor=0.1, patience=5, verbose=True,
+        factor=0.1, patience=5,
         threshold=1e-4, threshold_mode="abs", min_lr=1e-7
     )
     # criterion = nn.BCEWithLogitsLoss()
@@ -192,11 +206,7 @@ def train_model_base(train_loader, val_loader, config, test_loader=None):
                 output = model(data)
                 loss = criterion(output, target)
 
-                if torch.isnan(loss).any():
-                    print(f"Loss contains NaN values in epoch {epoch}, batch {batch_idx}")
-                    continue
-
-                # assert not torch.isnan(loss).any(), "Loss contains NaN values"
+                assert not torch.isnan(loss).any(), "Loss contains NaN values"
 
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # Gradient clipping
@@ -206,13 +216,15 @@ def train_model_base(train_loader, val_loader, config, test_loader=None):
                     f'Train Epoch: {epoch}, Progress: {batch_idx}/{num_batches}, Loss: {loss.item():.6f}'
                 )
 
-            val_losses, sub_step_metrics, step_metrics = test_er_model(model, val_loader, criterion, device, phase='val')
+            # Use threshold from config
+            eval_threshold = getattr(config, 'threshold', 0.6)
+            val_losses, sub_step_metrics, step_metrics = test_er_model(model, val_loader, criterion, device, phase='val', threshold=eval_threshold)
 
             scheduler.step(step_metrics[const.AUC])
 
             if test_loader is not None:
                 test_losses, test_sub_step_metrics, test_step_metrics = test_er_model(model, test_loader, criterion,
-                                                                                      device, phase='test')
+                                                                                      device, phase='test', threshold=eval_threshold)
 
             avg_train_loss = sum(train_losses) / len(train_losses)
             avg_val_loss = sum(val_losses) / len(val_losses)
@@ -245,8 +257,14 @@ def train_model_base(train_loader, val_loader, config, test_loader=None):
             if config.enable_wandb:
                 wandb.log(running_metrics)
 
-            print(f'Epoch: {epoch}, Train Loss: {avg_train_loss:.6f}, Test Loss: {avg_test_loss:.6f}, '
-                  f'Precision: {precision:.6f}, Recall: {recall:.6f}, F1: {f1:.6f}, AUC: {auc:.6f}')
+            # precision/recall/f1/auc come from the VALIDATION loader (step_metrics above),
+            # not from test_loader. Label them so the epoch log cannot be misread as a
+            # test-set result: the checkpoint is also selected on this same val AUC, so
+            # these figures are optimistic and the test split must be scored separately.
+            print(f'Epoch: {epoch}, Train Loss: {avg_train_loss:.6f}, '
+                  f'Val Loss: {avg_val_loss:.6f}, Test Loss: {avg_test_loss:.6f}, '
+                  f'Val Precision: {precision:.6f}, Val Recall: {recall:.6f}, '
+                  f'Val F1: {f1:.6f}, Val AUC: {auc:.6f}')
 
             # Update best model based on the chosen metric, here using AUC as an example
             if auc > best_model['metric']:
@@ -402,6 +420,22 @@ def test_er_model(model, test_loader, criterion, device, phase, step_normalizati
         #     step_output = pos_output
         # else:
         #     step_output = neg_output
+        if len(step_output) == 0:
+            # A step contributed zero feature rows, meaning its annotation window did
+            # not overlap the feature array at all. This is the signature of a
+            # feature/annotation time-base mismatch: CaptainCookStepDataset indexes
+            # feature rows with raw annotation timestamps in SECONDS, so features must
+            # be extracted at a 1s window / 1s stride (see SEGMENT_LENGTH in
+            # colab_feature_extraction.ipynb). Do NOT paper over this: the previous
+            # behaviour scored the step as mean_step_output=0.0 with a FABRICATED
+            # step_target=0, injecting synthetic negatives into the ground truth and
+            # inflating accuracy/AUC -- corrupting the metric itself, not just the model.
+            raise ValueError(
+                f"Empty feature slice for step spanning outputs [{start}:{end}]. "
+                f"Features and annotations are on different time bases -- re-extract "
+                f"features with SEGMENT_LENGTH = 1 rather than suppressing this."
+            )
+
         step_output = np.array(step_output)
         # # Scale the output to [0, 1]
         if start - end > 1:
@@ -418,9 +452,10 @@ def test_er_model(model, test_loader, criterion, device, phase, step_normalizati
     all_step_outputs = np.array(all_step_outputs)
 
     # # Scale the output to [0, 1]
-    if step_normalization:
+    if step_normalization and len(all_step_outputs) > 0:
         prob_range = np.max(all_step_outputs) - np.min(all_step_outputs)
-        all_step_outputs = (all_step_outputs - np.min(all_step_outputs)) / prob_range
+        if prob_range > 1e-9: # Avoid division by zero
+             all_step_outputs = (all_step_outputs - np.min(all_step_outputs)) / prob_range
 
     all_step_targets = np.array(all_step_targets)
 
