@@ -8,7 +8,6 @@ the recipe's task graph and classifying the resulting graph.
 
 | Student number | Name |
 |---|---|
-| 346489 | Nadim Aride |
 | 346267 | Emre Elci |
 | 349315 | Zein Alabedin Ismail |
 | 339880 | Zeynep Selcen Oztunc |
@@ -66,7 +65,7 @@ produces a NaN loss and, at evaluation, fabricated targets. `SEGMENT_LENGTH = 1`
 extraction notebook enforces this, and `base.py` asserts rather than substituting values
 when a slice comes back empty.
 
-`train_lstm_baseline_v2.ipynb` and `error_type_analysis.ipynb` cover the LSTM variant and
+`train_lstm_baseline.ipynb` and `error_type_analysis.ipynb` cover the LSTM variant and
 the per-error-category breakdown, both on Omnivore/SlowFast features.
 
 ## Extension: task-graph verification
